@@ -1,0 +1,14 @@
+# Core dependencies for nabla-labs-core
+numpy>=1.21.0
+opencv-python>=4.5.0
+matplotlib>=3.5.0
+
+# Optional dependencies for enhanced functionality
+pycocotools>=2.0.6; sys_platform != "win32"  # COCO format support (exclude Windows)
+pycocotools-wheels>=2.0.6; sys_platform == "win32"  # Windows-compatible COCO tools
+
+# Logging and utilities
+loguru>=0.6.0
+
+# Type hints support
+typing-extensions>=4.0.0; python_version < "3.8"
