@@ -1,0 +1,7 @@
+garment_type: "pants"
+raise_to_waist_ratio: "LOW"
+crotch_displacement_ratio: "HANGY"
+leg_length_ratio: "CAPRI"
+general_fit_ratio: "REGULAR"
+pants_style_spec: "SKINNY"
+cuff_length_ratio: 0.05

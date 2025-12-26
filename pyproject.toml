@@ -25,6 +25,8 @@ dependencies = [
     "trimesh",
     "loguru",
     "pyyaml",
+    "libigl",
+    "cgal",
 ]
 
 [project.urls]
