@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pygarment"
+version = "0.1.0"
+description = "Weon Garment Code - Pattern generation and garment design tools"
+readme = {text = "Weon Garment Code - Pattern generation and garment design tools", content-type = "text/plain"}
+license = {text = "MIT"}
+requires-python = ">=3.10"
+keywords = ["garment-programming", "garment-modeling", "sewing-patterns"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy<2.0",
+    "scipy",
+    "matplotlib",
+    "svgpathtools>=1.7.1",
+    "cairosvg>=2.8.2",
+    "trimesh",
+    "loguru",
+    "pyyaml",
+]
+
+[project.urls]
+Repository = "https://github.com/dahuerfanov/nabla-labs-core"
+
+[tool.setuptools]
+# Prevent setuptools from looking for setup.cfg or setup.py
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["weon_garment_code*"]
