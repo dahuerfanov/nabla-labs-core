@@ -1,7 +1,6 @@
 from collections.abc import Callable
 
 import numpy as np
-
 import weon_garment_code.pygarment.garmentcode as pyg
 from weon_garment_code.config import AttachmentConstraint
 from weon_garment_code.garment_programs.base_classes import BaseBottoms
@@ -10,7 +9,10 @@ from weon_garment_code.garment_programs.garment_enums import (
     InterfaceName,
     PanelAlignment,
 )
-from weon_garment_code.garment_programs.garment_program_utils import AttachmentHandler
+from weon_garment_code.garment_programs.garment_program_utils import (
+    AttachmentHandler,
+    link_symmetric_components,
+)
 from weon_garment_code.garment_programs.weon_bands import CuffBand
 from weon_garment_code.pattern_definitions.body_definition import BodyDefinition
 from weon_garment_code.pattern_definitions.pants_design import PantsDesign
@@ -123,18 +125,12 @@ class PantPanel(pyg.Panel):
 
         super().__init__(name)
 
-        dart_depth = (
-            design.length_waist_to_hip * hipline_ext * self.DART_DEPTH_MULTIPLIER
-        )
+        dart_depth = design.length_waist_to_hip * hipline_ext * self.DART_DEPTH_MULTIPLIER
         dart_width = (hips - waist) / 2
 
         # --- Edges definition ---
         # Right
-        total_length = (
-            design.length_thigh_to_knee
-            + design.length_knee_to_calf
-            + design.length_calf_to_ankle
-        )
+        total_length = design.length_thigh_to_knee + design.length_knee_to_calf + design.length_calf_to_ankle
         right_5 = pyg.CurveEdgeFactory.curve_from_tangents(
             start=[-hips, hips_crotch_diff + total_length],
             end=[-waist, mid_rise + total_length],
@@ -149,10 +145,7 @@ class PantPanel(pyg.Panel):
             target_tan0=np.array([0, 1]),
         )
 
-        x_grainline = (
-            ext_point_thigh[0]
-            + (design.width_thigh + crotch_extension) * self.GRAINLINE_OFFSET_RATIO
-        )
+        x_grainline = ext_point_thigh[0] + (design.width_thigh + crotch_extension) * self.GRAINLINE_OFFSET_RATIO
 
         right_3 = pyg.CurveEdgeFactory.interpolate_with_tangents(
             start=[
@@ -264,15 +257,9 @@ class PantPanel(pyg.Panel):
 
         # Out interfaces (easier to define before adding a dart)
         self.interfaces = {
-            InterfaceName.OUTSIDE: pyg.Interface(
-                self, pyg.EdgeSequence(right_1, right_2, right_3, right_4, right_5)
-            ),
-            InterfaceName.CROTCH: pyg.Interface(
-                self, pyg.EdgeSequence(crotch_top, crotch_bottom)
-            ),
-            InterfaceName.INSIDE: pyg.Interface(
-                self, pyg.EdgeSequence(left_top, left_middle, left_bottom)
-            ),
+            InterfaceName.OUTSIDE: pyg.Interface(self, pyg.EdgeSequence(right_1, right_2, right_3, right_4, right_5)),
+            InterfaceName.CROTCH: pyg.Interface(self, pyg.EdgeSequence(crotch_top, crotch_bottom)),
+            InterfaceName.INSIDE: pyg.Interface(self, pyg.EdgeSequence(left_top, left_middle, left_bottom)),
             InterfaceName.BOTTOM: pyg.Interface(self, bottom),
         }
 
@@ -289,18 +276,14 @@ class PantPanel(pyg.Panel):
             self.interfaces[InterfaceName.TOP] = pyg.Interface(
                 self,
                 int_edges,
-                ruffle=waist / match_top_int_to
-                if match_top_int_to is not None
-                else 1.0,
+                ruffle=waist / match_top_int_to if match_top_int_to is not None else 1.0,
             )
             self.edges.substitute(top, top_edges)
         else:
             self.interfaces[InterfaceName.TOP] = pyg.Interface(
                 self,
                 top,
-                ruffle=waist / match_top_int_to
-                if match_top_int_to is not None
-                else 1.0,
+                ruffle=waist / match_top_int_to if match_top_int_to is not None else 1.0,
             )
 
     def add_darts(
@@ -343,23 +326,14 @@ class PantPanel(pyg.Panel):
         """
 
         if double_dart:
-            dist = (
-                dart_position * self.DART_POSITION_MULTIPLIER
-            )  # Dist between darts -> dist between centers
+            dist = dart_position * self.DART_POSITION_MULTIPLIER  # Dist between darts -> dist between centers
             offsets_mid = [
-                -dart_position
-                + dist / 2
-                + dart_width / 2
-                + dart_width * self.DART_OFFSET_MULTIPLIER_QUARTER,
-                -dart_position
-                - dist / 2
-                - dart_width * self.DART_OFFSET_MULTIPLIER_QUARTER,
+                -dart_position + dist / 2 + dart_width / 2 + dart_width * self.DART_OFFSET_MULTIPLIER_QUARTER,
+                -dart_position - dist / 2 - dart_width * self.DART_OFFSET_MULTIPLIER_QUARTER,
             ]
 
             darts = [
-                pyg.EdgeSeqFactory.dart_shape(
-                    dart_width / 2, dart_depth * self.SMALL_DART_DEPTH_RATIO
-                ),  # smaller
+                pyg.EdgeSeqFactory.dart_shape(dart_width / 2, dart_depth * self.SMALL_DART_DEPTH_RATIO),  # smaller
                 pyg.EdgeSeqFactory.dart_shape(dart_width / 2, dart_depth),
             ]
         else:
@@ -469,10 +443,7 @@ class PantsHalf(BaseBottoms):
         )
 
         if self.pants_design.width_gusset_crotch_back is None:
-            crotch_extension_back = (
-                self.pants_design.width_gusset_crotch
-                + self.BACK_CROTCH_EXTENSION_OFFSET
-            )
+            crotch_extension_back = self.pants_design.width_gusset_crotch + self.BACK_CROTCH_EXTENSION_OFFSET
         else:
             crotch_extension_back = self.pants_design.width_gusset_crotch_back
 
@@ -519,9 +490,7 @@ class PantsHalf(BaseBottoms):
                 gap=5,
                 alignment=PanelAlignment.CENTER,
             )
-            self.stitching_rules.append(
-                (pant_bottom, self.cuff.interfaces[InterfaceName.TOP])
-            )
+            self.stitching_rules.append((pant_bottom, self.cuff.interfaces[InterfaceName.TOP]))
 
         self.interfaces = {
             InterfaceName.CROTCH_F: self.front.interfaces[InterfaceName.CROTCH],
@@ -593,6 +562,9 @@ class Pants(BaseBottoms):
         self.right = PantsHalf("r", design)
         self.left = PantsHalf("l", design).mirror()
 
+        link_symmetric_components(self.left, self.right, "l", "r")
+        link_symmetric_components(self.right, self.left, "r", "l")
+
         self.stitching_rules = pyg.Stitches(
             (
                 self.right.interfaces[InterfaceName.CROTCH_F],
@@ -616,9 +588,7 @@ class Pants(BaseBottoms):
             # Some are reversed for correct connection
             InterfaceName.TOP: pyg.Interface.from_multiple(  # around the body starting from front right
                 self.right.interfaces[InterfaceName.TOP_F].flip_edges(),
-                self.left.interfaces[InterfaceName.TOP_F].reverse(
-                    with_edge_dir_reverse=True
-                ),
+                self.left.interfaces[InterfaceName.TOP_F].reverse(with_edge_dir_reverse=True),
                 self.left.interfaces[InterfaceName.TOP_B].flip_edges(),
                 self.right.interfaces[InterfaceName.TOP_B].reverse(
                     with_edge_dir_reverse=True
@@ -627,9 +597,7 @@ class Pants(BaseBottoms):
         }
 
         # Add lower_interface label for attachment constraints
-        self.interfaces[InterfaceName.TOP].edges.propagate_label(
-            EdgeLabel.LOWER_INTERFACE
-        )
+        self.interfaces[InterfaceName.TOP].edges.propagate_label(EdgeLabel.LOWER_INTERFACE)
 
     def length(self) -> float:
         """Get the length of the pants garment.
@@ -704,11 +672,7 @@ class Pants(BaseBottoms):
         Callable[[BoxMesh], None]
             The vertex processor callback function.
         """
-        return (
-            lambda box_mesh: AttachmentHandler.process_attachment_constraints_generic(
-                Pants, box_mesh
-            )
-        )
+        return lambda box_mesh: AttachmentHandler.process_attachment_constraints_generic(Pants, box_mesh)
 
     def apply_body_alignment(self, body: BodyDefinition) -> None:
         """Apply body alignment to position the pants correctly.

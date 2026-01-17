@@ -6,7 +6,6 @@ replacing dictionary-based access with proper classes and enums.
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Optional
 
 import numpy as np
 
@@ -90,7 +89,7 @@ class EdgeSpec:
     """
 
     endpoints: tuple[int, int]
-    curvature: Optional[CurvatureSpec] = None
+    curvature: CurvatureSpec | None = None
     label: str = ""
 
     @classmethod
@@ -146,6 +145,7 @@ class PanelSpec:
     vertices: list[list[float]]
     edges: list[EdgeSpec]
     label: str = ""
+    symmetry_partner: str = ""
 
     @classmethod
     def from_dict(cls, data: dict) -> "PanelSpec":
@@ -168,6 +168,7 @@ class PanelSpec:
             vertices=data["vertices"],
             edges=[EdgeSpec.from_dict(edge) for edge in data["edges"]],
             label=data.get("label", ""),
+            symmetry_partner=data.get("symmetry_partner", ""),
         )
 
 
@@ -263,7 +264,7 @@ class PatternSpec:
 
     panels: dict[str, PanelSpec]
     stitches: list[StitchSpec]
-    panel_order: Optional[list[str]] = None
+    panel_order: list[str] | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "PatternSpec":
@@ -280,10 +281,7 @@ class PatternSpec:
         PatternSpec
             Initialized pattern specification
         """
-        panels = {
-            name: PanelSpec.from_dict(panel_data)
-            for name, panel_data in data["panels"].items()
-        }
+        panels = {name: PanelSpec.from_dict(panel_data) for name, panel_data in data["panels"].items()}
 
         stitches = []
         if "stitches" in data:
@@ -294,4 +292,3 @@ class PatternSpec:
             stitches=stitches,
             panel_order=data.get("panel_order"),
         )
-
