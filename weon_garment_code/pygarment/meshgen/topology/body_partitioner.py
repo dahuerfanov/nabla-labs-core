@@ -240,7 +240,7 @@ class BodyPartitioner(MeshPartitioner):
                 for j in range(i + 1, len(connectors)):
                     d = np.linalg.norm(
                         self.vertices[connectors[i]] - self.vertices[connectors[j]]
-                    )
+                    ).item()
                     if d > max_dist:
                         max_dist = d
                         best_pair = [connectors[i], connectors[j]]

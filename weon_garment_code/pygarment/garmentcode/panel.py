@@ -7,7 +7,7 @@ from loguru import logger
 from scipy.spatial.transform import Rotation as R
 
 from weon_garment_code.pygarment.garmentcode.base import BaseComponent
-from weon_garment_code.pygarment.garmentcode.edge import CircleEdge, Edge, EdgeSequence
+from weon_garment_code.pygarment.garmentcode.edge import CircleEdge, EdgeSequence
 from weon_garment_code.pygarment.garmentcode.interface import Interface
 from weon_garment_code.pygarment.garmentcode.operators import cut_into_edge
 from weon_garment_code.pygarment.garmentcode.utils import close_enough, vector_align_3D
@@ -16,12 +16,12 @@ from weon_garment_code.pygarment.pattern.wrappers import VisPattern
 
 
 class Panel(BaseComponent):
-    """ A Base class for defining a Garment component corresponding to a single
+    """A Base class for defining a Garment component corresponding to a single
         flat fiece of fabric
-    
+
     Defined as a collection of edges on a 2D grid with specified 3D placement
         (world coordinates)
-    
+
     NOTE: All operations methods return 'self' object to allow sequential
         applications
 
@@ -31,17 +31,17 @@ class Panel(BaseComponent):
     translation: np.ndarray  # 3D translation vector
     rotation: R  # 3D rotation as scipy Rotation object
     edges: EdgeSequence  # Edge sequence defining the panel shape
-    
-    def __init__(self, name, label='') -> None:
+
+    def __init__(self, name, label="") -> None:
         """Base class for panel creations
-            * Name: panel name. Expected to be a unique identifier of a panel object
-            * label: additional panel label (non-unique)
+        * Name: panel name. Expected to be a unique identifier of a panel object
+        * label: additional panel label (non-unique)
         """
         super().__init__(name)
 
         self.label = label
         self.translation = np.zeros(3)
-        self.rotation = R.from_euler('XYZ', [0, 0, 0])  # zero rotation
+        self.rotation = R.from_euler("XYZ", [0, 0, 0])  # zero rotation
         # NOTE: initiating with empty sequence allows .append() to it safely
         self.edges = EdgeSequence()
 
@@ -52,9 +52,9 @@ class Panel(BaseComponent):
 
     def length(self, longest_dim=False):
         """Length of a panel element in cm
-        
-            Defaults the to the vertical length of a 2D bounding box
-            * longest_dim -- if set, returns the longest dimention out of the bounding box dimentions
+
+        Defaults the to the vertical length of a 2D bounding box
+        * longest_dim -- if set, returns the longest dimention out of the bounding box dimentions
         """
         bbox = self.bbox()
 
@@ -67,23 +67,25 @@ class Panel(BaseComponent):
         """Check whether the panel has self-intersection"""
         edge_curves = []
         for e in self.edges:
-            if isinstance(e, CircleEdge):  
+            if isinstance(e, CircleEdge):
                 # NOTE: Intersections for Arcs (Circle edge) fails in svgpathtools:
                 # They are not well implemented in svgpathtools, see
                 # https://github.com/mathandy/svgpathtools/issues/121
                 # https://github.com/mathandy/svgpathtools/blob/fcb648b9bb9591d925876d3b51649fa175b40524/svgpathtools/path.py#L1960
                 # Hence using linear approximation for robustness:
-                edge_curves += [eseg.as_curve() for eseg in e.linearize(n_verts_inside=10)]
+                edge_curves += [
+                    eseg.as_curve() for eseg in e.linearize(n_verts_inside=10)
+                ]
             else:
                 edge_curves.append(e.as_curve())
 
         # NOTE: simple pairwise checks of edges
         for i1 in range(0, len(edge_curves)):
-           for i2 in range(i1 + 1, len(edge_curves)):
+            for i2 in range(i1 + 1, len(edge_curves)):
                 intersect_t = edge_curves[i1].intersect(edge_curves[i2])
-                
+
                 # Check exceptions -- intersection at the vertex
-                for i in range(len(intersect_t)): 
+                for i in range(len(intersect_t)):
                     t1, t2 = intersect_t[i]
                     if t2 < t1:
                         t1, t2 = t2, t1
@@ -92,11 +94,11 @@ class Panel(BaseComponent):
                 intersect_t = [el for el in intersect_t if el is not None]
 
                 if intersect_t:  # Any other case of intersections
-                    return True      
+                    return True
         return False
 
-    # ANCHOR - Operations -- update object in-place 
-    def set_panel_label(self, label: str, overwrite=True): 
+    # ANCHOR - Operations -- update object in-place
+    def set_panel_label(self, label: str, overwrite=True):
         """If overwrite is not enabled, only updates the label if it's empty."""
         if not self.label or overwrite:
             self.label = label
@@ -112,8 +114,8 @@ class Panel(BaseComponent):
                 as it was before pivot change
                 default - False (no adjustment, the panel may "jump" in 3D)
         """
-        point_2d = copy(point_2d)  # Remove unwanted object reference 
-                                   # In case an actual vertex was used as a target point
+        point_2d = copy(point_2d)  # Remove unwanted object reference
+        # In case an actual vertex was used as a target point
 
         if replicate_placement:
             self.translation = self.point_to_3D(point_2d)
@@ -125,8 +127,8 @@ class Panel(BaseComponent):
             v[1] -= int(point_2d[1])
 
     def top_center_pivot(self):
-        """One of the most useful pivots 
-            is the one in the middle of the top edge of the panel 
+        """One of the most useful pivots
+        is the one in the middle of the top edge of the panel
         """
         vertices = np.asarray(self.edges.verts())
 
@@ -137,14 +139,14 @@ class Panel(BaseComponent):
         mid_x = (top_right[0] + low_left[0]) / 2
         mid_y = (top_right[1] + low_left[1]) / 2
         mid_points_2D = [
-            [mid_x, top_right[1]], 
+            [mid_x, top_right[1]],
             [mid_x, low_left[1]],
             [top_right[0], mid_y],
-            [low_left[0], mid_y]
+            [low_left[0], mid_y],
         ]
-        mid_points_3D = np.vstack(tuple(
-            [self.point_to_3D(coords) for coords in mid_points_2D]
-        ))
+        mid_points_3D = np.vstack(
+            tuple([self.point_to_3D(coords) for coords in mid_points_2D])
+        )
         top_mid_point = mid_points_3D[:, 1].argmax()
 
         self.set_pivot(mid_points_2D[top_mid_point])
@@ -156,16 +158,16 @@ class Panel(BaseComponent):
         # NOTE: One may also want to have autonorm only on the assembly?
         self.autonorm()
         return self
-    
+
     def translate_to(self, new_translation):
         """Set panel translation to be exactly that vector"""
         self.translation = np.asarray(new_translation)
         self.autonorm()
         return self
-    
+
     def rotate_by(self, delta_rotation: R):
         """Rotate panel by a given rotation
-            * delta_rotation: scipy rotation object
+        * delta_rotation: scipy rotation object
         """
         self.rotation = delta_rotation * self.rotation
         self.autonorm()
@@ -173,10 +175,12 @@ class Panel(BaseComponent):
 
     def rotate_to(self, new_rot: R):
         """Set panel rotation to be exactly the given rotation
-            * new_rot: scipy rotation object
-        """   
+        * new_rot: scipy rotation object
+        """
         if not isinstance(new_rot, R):
-            raise ValueError(f'{self.__class__.__name__}::ERROR::Only accepting rotations in scipy format')
+            raise ValueError(
+                f"{self.__class__.__name__}::ERROR::Only accepting rotations in scipy format"
+            )
         self.rotation = new_rot
         self.autonorm()
         return self
@@ -201,71 +205,79 @@ class Panel(BaseComponent):
 
     def autonorm(self):
         """Update right/wrong side orientation, s.t. the normal of the surface
-            looks outside he world origin,
-            taking into account the shape and the global position.
-        
-            This should provide correct panel orientation in most cases.
+        looks outside he world origin,
+        taking into account the shape and the global position.
 
-            NOTE: for best results, call autonorm after translation
-                specification
+        This should provide correct panel orientation in most cases.
+
+        NOTE: for best results, call autonorm after translation
+            specification
         """
         norm_dr = self.norm()
-        
+
         # NOTE: Nothing happens if self.translation is zero
-        if np.dot(norm_dr, self.translation) < 0: 
-            # Swap if wrong  
+        if np.dot(norm_dr, self.translation) < 0:
+            # Swap if wrong
             self.edges.reverse()
 
     def mirror(self, axis=None):
         """Swap this panel with its mirror image
-        
-            Axis specifies 2D axis to swap around: Y axis by default
+
+        Axis specifies 2D axis to swap around: Y axis by default
         """
         if axis is None:
             axis = [0, 1]
         # Case Around Y
         if close_enough(axis[0], tol=1e-4):  # reflection around Y
-
             # Vertices
             self.edges.reflect([0, 0], [0, 1])
-            
+
             # Position
             self.translation[0] *= -1
 
             # Rotations
-            curr_euler = self.rotation.as_euler('XYZ')
-            curr_euler[1] *= -1  
-            curr_euler[2] *= -1  
-            self.rotate_to(R.from_euler('XYZ', curr_euler))  
+            curr_euler = self.rotation.as_euler("XYZ")
+            curr_euler[1] *= -1
+            curr_euler[2] *= -1
+            self.rotate_to(R.from_euler("XYZ", curr_euler))
 
             # Fix right/wrong side
             self.autonorm()
         else:
             # TODO Any other axis
-            raise NotImplementedError(f'{self.name}::ERROR::Mirrowing over arbitrary axis is not implemented')
+            raise NotImplementedError(
+                f"{self.name}::ERROR::Mirrowing over arbitrary axis is not implemented"
+            )
         return self
 
-    def add_dart(self, dart_shape, edge, offset, right=True, edge_seq=None, int_edge_seq=None, ):
-        """ Shortcut for adding a dart to a panel: 
-            * Performs insertion of the dart_shape in the given edge (parameters are the same 
-                as in pyp.ops.cut_into_edge)
-            * Creates stitch to connect the dart sides
-            * Modifies edge_sequnces with full set (edge_seq) or only the interface part (int_edge_seq) 
-                of the created edges, if those are provided
-            
-            Returns new edges after insertion, and the interface part (excludes dart edges)
+    def add_dart(
+        self,
+        dart_shape,
+        edge,
+        offset,
+        right=True,
+        edge_seq=None,
+        int_edge_seq=None,
+    ):
+        """Shortcut for adding a dart to a panel:
+        * Performs insertion of the dart_shape in the given edge (parameters are the same
+            as in pyp.ops.cut_into_edge)
+        * Creates stitch to connect the dart sides
+        * Modifies edge_sequnces with full set (edge_seq) or only the interface part (int_edge_seq)
+            of the created edges, if those are provided
+
+        Returns new edges after insertion, and the interface part (excludes dart edges)
         """
         edges_new, dart_edges, int_new = cut_into_edge(
-            dart_shape, 
-            edge, 
-            offset=offset,
-            right=right)
-        
+            dart_shape, edge, offset=offset, right=right
+        )
+
         self.stitching_rules.append(
-            (Interface(self, dart_edges[0]), Interface(self, dart_edges[1])))
-        
+            (Interface(self, dart_edges[0]), Interface(self, dart_edges[1]))
+        )
+
         # Update the edges if given
-        if edge_seq is not None: 
+        if edge_seq is not None:
             edge_seq.substitute(edge, edges_new)
             edges_new = edge_seq
         if int_edge_seq is not None:
@@ -278,7 +290,7 @@ class Panel(BaseComponent):
     def assembly(self):
         """Convert panel into serialazable representation
 
-         NOTE: panel EdgeSequence is assumed to be a single loop of edges
+        NOTE: panel EdgeSequence is assumed to be a single loop of edges
         """
         # FIXME Some panels have weird resulting alignemnt when th
         # is pivot setup is removed -- there is a bug somewhere
@@ -289,33 +301,40 @@ class Panel(BaseComponent):
         # Basics
         panel = Namespace(
             translation=self.translation.tolist(),
-            rotation=self.rotation.as_euler('XYZ', degrees=True).tolist(), 
-            vertices=[self.edges[0].start], 
-            edges=[])
+            rotation=self.rotation.as_euler("XYZ", degrees=True).tolist(),
+            vertices=[self.edges[0].start],
+            edges=[],
+        )
 
         for i in range(len(self.edges)):
             vertices, edge = self.edges[i].assembly()
 
             # add new vertices
-            if panel.vertices[-1] == vertices[0]:   # We care if both point to the same vertex location, not necessarily the same vertex object
-                vert_shift = len(panel.vertices) - 1  # first edge vertex = last vertex already in the loop
-                panel.vertices += vertices[1:] 
-            else: 
+            if (
+                panel.vertices[-1] == vertices[0]
+            ):  # We care if both point to the same vertex location, not necessarily the same vertex object
+                vert_shift = (
+                    len(panel.vertices) - 1
+                )  # first edge vertex = last vertex already in the loop
+                panel.vertices += vertices[1:]
+            else:
                 vert_shift = len(panel.vertices)
                 panel.vertices += vertices
 
-            # upd vertex references in edges according to new vertex ids in 
+            # upd vertex references in edges according to new vertex ids in
             # the panel vertex loop
-            edge['endpoints'] = [id + vert_shift for id in edge['endpoints']]
-                
+            edge["endpoints"] = [id + vert_shift for id in edge["endpoints"]]
+
             edge_shift = len(panel.edges)  # before adding new ones
-            self.edges[i].geometric_id = edge_shift   # remember the mapping of logical edge to geometric id in panel loop
+            self.edges[
+                i
+            ].geometric_id = edge_shift  # remember the mapping of logical edge to geometric id in panel loop
             panel.edges.append(edge)
 
         # Check closing of the loop and upd vertex reference for the last edge
         if panel.vertices[-1] == panel.vertices[0]:
             panel.vertices.pop()
-            panel.edges[-1]['endpoints'][-1] = 0
+            panel.edges[-1]["endpoints"][-1] = 0
 
         # Add panel label, if known
         if self.label:
@@ -323,30 +342,29 @@ class Panel(BaseComponent):
 
         spattern = BasicPattern()
         spattern.name = self.name
-        spattern.pattern['panels'] = {self.name: vars(panel)}
+        spattern.pattern["panels"] = {self.name: vars(panel)}
 
         # Assembly stitching info (panel might have inner stitches)
-        spattern.pattern['stitches'] = self.stitching_rules.assembly()
+        spattern.pattern["stitches"] = self.stitching_rules.assembly()
 
         return spattern
 
     # ANCHOR utils
-    def _center_2D(self, n_verts_inside = 3):
-        """Approximate Location of the panel center. 
+    def _center_2D(self, n_verts_inside=3):
+        """Approximate Location of the panel center.
 
-            NOTE: uses crude linear approximation for curved edges,
-            n_verts_inside = number of vertices (excluding the start
-            and end vertices) used to create a linearization of an edge
+        NOTE: uses crude linear approximation for curved edges,
+        n_verts_inside = number of vertices (excluding the start
+        and end vertices) used to create a linearization of an edge
         """
         # NOTE: assuming that edges are organized in a loop and share vertices
-        lin_edges = EdgeSequence([e.linearize(n_verts_inside)
-                                  for e in self.edges])
+        lin_edges = EdgeSequence([e.linearize(n_verts_inside) for e in self.edges])
         verts = lin_edges.verts()
 
         return np.mean(verts, axis=0)
 
     def point_to_3D(self, point_2d):
-        """Calculate 3D location of a point given in the local 2D plane """
+        """Calculate 3D location of a point given in the local 2D plane"""
         point_2d = np.asarray(point_2d)
         if len(point_2d) == 2:
             point_2d = np.append(point_2d, 0)
@@ -385,9 +403,11 @@ class Panel(BaseComponent):
         if close_enough(np.linalg.norm(avg_norm), 0):
             # Indecisive averaging, so using just one of the norms
             # NOTE: sometimes happens on thin arcs
-            avg_norm = norms[0]   
+            avg_norm = norms[0]
             if self.verbose:
-                logger.warning('Norm evaluation failed, assigning norm based on the first edge')
+                logger.warning(
+                    "Norm evaluation failed, assigning norm based on the first edge"
+                )
 
         final_norm = avg_norm / np.linalg.norm(avg_norm)
 
@@ -406,7 +426,6 @@ class Panel(BaseComponent):
 
         return verts_2d.min(axis=0), verts_2d.max(axis=0)
 
-
     def bbox3D(self):
         """Evaluate 3D bounding box of the current panel"""
 
@@ -417,38 +436,42 @@ class Panel(BaseComponent):
 
         return verts_3d.min(axis=0), verts_3d.max(axis=0)
 
-    def save_as_image(self, png_filename, svg_filename=None, 
-                     with_text=True, view_ids=True, margin=2):
+    def save_as_image(
+        self, png_filename, svg_filename=None, with_text=True, view_ids=True, margin=2
+    ):
         """Export panel to PNG image for debugging/visualization
-        
+
         Parameters:
             * png_filename: Path where to save the PNG image
             * svg_filename: Optional path for SVG file (auto-generated if None)
             * with_text: Include panel names in the image
             * view_ids: Include vertex and edge IDs in the image
             * margin: Margin around the panel in cm
-        
+
         Returns:
             Path to the saved PNG file
         """
-        
+
         # Convert panel to pattern
         basic_pattern = self.assembly()
-        
+
         # Create VisPattern and copy pattern data
         vis_pattern = VisPattern()
         vis_pattern.name = self.name
         vis_pattern.pattern = basic_pattern.pattern
         vis_pattern.spec = basic_pattern.spec
-        
+
         # Generate SVG filename if not provided
         if svg_filename is None:
-            svg_filename = os.path.splitext(png_filename)[0] + '.svg'
-        
+            svg_filename = os.path.splitext(png_filename)[0] + ".svg"
+
         # Save as image
-        vis_pattern._save_as_image(svg_filename, png_filename, 
-                                   with_text=with_text, 
-                                   view_ids=view_ids, 
-                                   margin=margin)
-        
+        vis_pattern._save_as_image(
+            svg_filename,
+            png_filename,
+            with_text=with_text,
+            view_ids=view_ids,
+            margin=margin,
+        )
+
         return png_filename

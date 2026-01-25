@@ -1,41 +1,33 @@
 import json
-import pickle
 
 import igl
 import numpy as np
 import warp as wp
 import warp.collision.panel_assignment as assign
-import warp.sim.render
-import yaml
 from loguru import logger
 from warp.sim.collide import count_body_cloth_intersections, count_self_intersections
 from warp.sim.integrator_xpbd import replace_mesh_points
 from warp.sim.utils import implicit_laplacian_smoothing
 
 # Custom
-from weon_garment_code.config import PathCofig
 from weon_garment_code.config.sim_config import SimConfig
-from weon_garment_code.pattern_definitions.body_definition import BodyDefinition
-from weon_garment_code.pygarment.meshgen.garment_data import GarmentData
 from weon_garment_code.pygarment.meshgen.garment_utils import AttachmentConstraintUtils
+from weon_garment_code.pygarment.meshgen.sim_data import GarmentData
 from weon_garment_code.pygarment.pattern.core import BasicPattern
 
 
 class SimulationGarment:
     """Garment simulation class that builds and runs cloth simulations.
-    
+
     This class handles the setup and execution of cloth simulations using the
     Warp physics engine. It supports both disk-based and in-memory data loading.
     """
-    
+
     def __init__(
-        self,
-        name: str,
-        config: SimConfig,
-        garment_data: GarmentData | None = None
+        self, name: str, config: SimConfig, garment_data: GarmentData | None = None
     ) -> None:
         """Initialize the simulation garment.
-        
+
         Parameters
         ----------
         name : str
@@ -55,14 +47,14 @@ class SimulationGarment:
         self.sim_substeps = config.sim_substeps
         self.zero_gravity_steps = config.zero_gravity_steps
         self.sim_dt = (1.0 / self.sim_fps) / self.sim_substeps
-        self.usd_frame_time = 0.0 
+        self.usd_frame_time = 0.0
         self.sim_use_graph = wp.get_device().is_cuda
-        self.device = wp.get_device() if wp.get_device().is_cuda else 'cpu' 
+        self.device = wp.get_device() if wp.get_device().is_cuda else "cpu"
         self.frame = -1
 
         self.c_scale = 1.0
         self.b_scale = 100.0
-        
+
         # collision resolution options
         self.enable_body_smoothing = config.enable_body_smoothing
         self.enable_cloth_reference_drag = config.enable_cloth_reference_drag
@@ -71,22 +63,31 @@ class SimulationGarment:
         self.build_stage(config)
 
         # -------- Final model settings ----------
-        # NOTE: global_viscous_damping: (damping_factor, min_vel_damp, max_vel) 
+        # NOTE: global_viscous_damping: (damping_factor, min_vel_damp, max_vel)
         # apply damping when vel > min_vel_damp, and clamp vel below max_vel after damping
         # TODO Remove after refactoring Euler integrator
         self.model.global_viscous_damping = wp.vec3(
-            (config.global_damping_factor, config.global_damping_effective_velocity, config.global_max_velocity))
+            (
+                config.global_damping_factor,
+                config.global_damping_effective_velocity,
+                config.global_max_velocity,
+            )
+        )
         self.model.particle_max_velocity = config.global_max_velocity
-        
-        self.model.ground = config.ground  
+
+        self.model.ground = config.ground
 
         self.model.global_collision_filter = config.enable_global_collision_filter
         self.model.cloth_reference_drag = self.enable_cloth_reference_drag
         self.model.cloth_reference_margin = config.cloth_reference_margin
         self.model.cloth_reference_k = config.cloth_reference_k
         self.model.cloth_reference_watertight_whole_shape_index = 0
-        self.model.enable_particle_particle_collisions = config.enable_particle_particle_collisions
-        self.model.enable_triangle_particle_collisions = config.enable_triangle_particle_collisions
+        self.model.enable_particle_particle_collisions = (
+            config.enable_particle_particle_collisions
+        )
+        self.model.enable_triangle_particle_collisions = (
+            config.enable_triangle_particle_collisions
+        )
         self.model.enable_edge_edge_collisions = config.enable_edge_edge_collisions
         self.model.attachment_constraint = config.enable_attachment_constraint
 
@@ -103,9 +104,13 @@ class SimulationGarment:
         self.model.particle_cohesion = config.particle_cohesion
         self.model.particle_adhesion = config.particle_adhesion
 
-        self.integrator = wp.sim.XPBDIntegrator() #intialize semi-implicit time-integrator
-        self.state_0 = self.model.state() #returns state object for model (holds all *time-varying* data for a model)
-        self.state_1 = self.model.state() #i.e. body/particle positions and velocities
+        self.integrator = (
+            wp.sim.XPBDIntegrator()
+        )  # intialize semi-implicit time-integrator
+        self.state_0 = (
+            self.model.state()
+        )  # returns state object for model (holds all *time-varying* data for a model)
+        self.state_1 = self.model.state()  # i.e. body/particle positions and velocities
 
         if self.sim_use_graph:
             self.create_graph()
@@ -120,13 +125,13 @@ class SimulationGarment:
 
             # Normalize row into a list of entries
             if isinstance(row, str):
-                entries = row.rstrip('\n').split(',')
+                entries = row.rstrip("\n").split(",")
             else:
                 entries = row
 
             first_entry = str(entries[0])
 
-            if first_entry.startswith('stitch'):
+            if first_entry.startswith("stitch"):
                 entry = "stitch"
             else:
                 entry = first_entry
@@ -136,19 +141,19 @@ class SimulationGarment:
 
     def build_stage(self, config: SimConfig) -> None:
         """Build the simulation stage including cloth, body, and constraints.
-        
+
         This method sets up the complete simulation environment including:
         - Body mesh loading and setup
         - Cloth mesh loading and setup
         - Collision detection setup
         - Attachment constraints
         - Reference shapes for cloth-body interaction
-        
+
         Parameters
         ----------
         config : SimConfig
             Simulation configuration object containing all simulation parameters.
-            
+
         Note
         ----
         The order of operations is critical:
@@ -160,7 +165,9 @@ class SimulationGarment:
         """
 
         builder = wp.sim.ModelBuilder(gravity=0.0)
-        builder.edge_contact_max = 3 * self.config.options.edge_contact_max  # per spring
+        builder.edge_contact_max = (
+            3 * self.config.options.edge_contact_max
+        )  # per spring
         # --------------- Load body info -----------------
         if self.garment_data is not None:
             # Use in-memory data (match format from load_obj)
@@ -170,8 +177,9 @@ class SimulationGarment:
             body_seg = self.garment_data.body_segmentation.copy()
         else:
             # Read from disk (backward compatible)
-            raise NotImplementedError("Disk-based body loading is not implemented in this version.")
-             
+            raise NotImplementedError(
+                "Disk-based body loading is not implemented in this version."
+            )
 
         body_vertices = body_vertices * self.b_scale
         self.shift_y = self.get_shift_param(body_vertices)
@@ -192,16 +200,23 @@ class SimulationGarment:
             cloth_vertices = np.array(box_mesh.vertices)
             cloth_faces = np.array(box_mesh.faces)
             cloth_indices = cloth_faces.flatten()
-            
+
             cloth_seg_dict = self.parse_segmentation_rows()
             self.cloth_seg_dict = cloth_seg_dict
-            stitching_vertices = cloth_seg_dict["stitch"] if 'stitch' in cloth_seg_dict.keys() else []
-            
+            stitching_vertices = (
+                cloth_seg_dict["stitch"] if "stitch" in cloth_seg_dict.keys() else []
+            )
+
             # Use original edge lengths from BoxMesh
-            orig_lens_dict = box_mesh.orig_lens if hasattr(box_mesh, 'orig_lens') and box_mesh.orig_lens else None
+            orig_lens_dict = (
+                box_mesh.orig_lens
+                if hasattr(box_mesh, "orig_lens") and box_mesh.orig_lens
+                else None
+            )
         else:
-            raise NotImplementedError("Disk-based cloth loading is not implemented in this version.")
-            
+            raise NotImplementedError(
+                "Disk-based cloth loading is not implemented in this version."
+            )
 
         cloth_vertices = cloth_vertices * self.c_scale
         if self.shift_y:
@@ -210,7 +225,9 @@ class SimulationGarment:
         self.f_cloth = cloth_faces
 
         cloth_pos = (0.0, 0.0, 0.0)
-        cloth_rot = wp.quat_from_axis_angle(wp.vec3(0.0, 1.0, 0.0), wp.degrees(0.0)) #no rotation, but orientation of cloth in world space
+        cloth_rot = wp.quat_from_axis_angle(
+            wp.vec3(0.0, 1.0, 0.0), wp.degrees(0.0)
+        )  # no rotation, but orientation of cloth in world space
 
         builder.add_cloth_mesh_sewing_spring(
             pos=cloth_pos,
@@ -236,7 +253,7 @@ class SimulationGarment:
             spring_kd=config.spring_kd,
         )
 
-        # ------------ Add a body -----------      
+        # ------------ Add a body -----------
         if self.enable_body_smoothing:
             # Starts sim from smoothed-out body and slowly restores original details
             smoothing_total_smoothing_factor = config.smoothing_total_smoothing_factor
@@ -244,103 +261,136 @@ class SimulationGarment:
             smoothing_recover_start_frame = config.smoothing_recover_start_frame
             smoothing_frame_gap_between_steps = config.smoothing_frame_gap_between_steps
             smoothing_step_size = smoothing_total_smoothing_factor / smoothing_num_steps
-            self.body_smoothing_frames = [smoothing_recover_start_frame + smoothing_frame_gap_between_steps*i for i in range(smoothing_num_steps + 1)]
+            self.body_smoothing_frames = [
+                smoothing_recover_start_frame + smoothing_frame_gap_between_steps * i
+                for i in range(smoothing_num_steps + 1)
+            ]
             self.body_smoothing_vertices_list = []
-            self.body_smoothing_vertices_list = implicit_laplacian_smoothing(body_vertices, body_indices.reshape(-1, 3), 
-                                                                             step_size=smoothing_step_size, 
-                                                                             iters=smoothing_num_steps)
+            self.body_smoothing_vertices_list = implicit_laplacian_smoothing(
+                body_vertices,
+                body_indices.reshape(-1, 3),
+                step_size=smoothing_step_size,
+                iters=smoothing_num_steps,
+            )
             body_vertices = self.body_smoothing_vertices_list.pop()
             self.body_smoothing_frames.pop()
             self.v_body = body_vertices
-        
-        self.body_vertices_device_buffer = wp.array(body_vertices, dtype=wp.vec3, device=self.device)
+
+        self.body_vertices_device_buffer = wp.array(
+            body_vertices, dtype=wp.vec3, device=self.device
+        )
         self.body_mesh = wp.sim.Mesh(body_vertices, body_indices)
-        
+
         body_pos = wp.vec3(0.0, 0, 0.0)
         body_rot = wp.quat_from_axis_angle(wp.vec3(0.0, 1.0, 0.0), wp.degrees(0.0))
 
-
         # Cloth-body segemntation
         cloth_reference_labels, body_parts = assign.panel_assignment(
-                        cloth_seg_dict, cloth_vertices, cloth_indices, wp.transform(cloth_pos, cloth_rot), 
-                        body_seg, body_vertices, body_indices, wp.transform(body_pos, body_rot), 
-                        device=self.device,
-                        panel_init_labels=self._load_panel_labels(),
-                        strategy='closest', 
-                        merge_two_legs=True,
-                        smpl_body=True #TODO we should not have this flag anymore to include other body types
-                        )  
-        
+            cloth_seg_dict,
+            cloth_vertices,
+            cloth_indices,
+            wp.transform(cloth_pos, cloth_rot),
+            body_seg,
+            body_vertices,
+            body_indices,
+            wp.transform(body_pos, body_rot),
+            device=self.device,
+            panel_init_labels=self._load_panel_labels(),
+            strategy="closest",
+            merge_two_legs=True,
+            smpl_body=True,  # TODO we should not have this flag anymore to include other body types
+        )
+
         face_filters, particle_filter = [], []
         if config.enable_body_collision_filters:
-            v_connectivity = self._build_vert_connectivity(cloth_vertices, cloth_indices)
+            v_connectivity = self._build_vert_connectivity(
+                cloth_vertices, cloth_indices
+            )
             # Arm filter for the skirts
-            face_filters.append(assign.create_face_filter(
-                body_vertices, body_indices, body_seg, ['left_arm', 'right_arm', 'arms'], smpl_body=True))#TODO we should not have this flag anymore to include other body types
+            face_filters.append(
+                assign.create_face_filter(
+                    body_vertices,
+                    body_indices,
+                    body_seg,
+                    ["left_arm", "right_arm", "arms"],
+                    smpl_body=True,
+                )
+            )  # TODO we should not have this flag anymore to include other body types
             particle_filter = assign.assign_face_filter_points(
-                cloth_reference_labels, 
-                ['left_leg', 'right_leg', 'legs'],
+                cloth_reference_labels,
+                ["left_leg", "right_leg", "legs"],
                 filter_id=0,
-                vert_connectivity=v_connectivity
+                vert_connectivity=v_connectivity,
             )
 
             # Overall filter that ignored internal geometry
-            face_filters.append(assign.create_face_filter(
-                body_vertices, body_indices, body_seg, ['face_internal'], smpl_body=True))#TODO we should not have this flag anymore to include other body types
+            face_filters.append(
+                assign.create_face_filter(
+                    body_vertices,
+                    body_indices,
+                    body_seg,
+                    ["face_internal"],
+                    smpl_body=True,
+                )
+            )  # TODO we should not have this flag anymore to include other body types
             particle_filter = assign.assign_face_filter_points(
-                cloth_reference_labels, 
-                ['body'],
-                filter_id=1,   
+                cloth_reference_labels,
+                ["body"],
+                filter_id=1,
                 vert_connectivity=v_connectivity,
-                current_vertex_filter=particle_filter
+                current_vertex_filter=particle_filter,
             )
 
-        self.body_shape_index = 0   # Body is the first collider object to be added
+        self.body_shape_index = 0  # Body is the first collider object to be added
         builder.add_shape_mesh(
             body=-1,
             mesh=self.body_mesh,
             pos=body_pos,
             rot=body_rot,
-            scale=wp.vec3(1.0,1.0,1.0), #performed body scaling above
-            thickness=config.body_thickness,  
+            scale=wp.vec3(1.0, 1.0, 1.0),  # performed body scaling above
+            thickness=config.body_thickness,
             mu=config.body_friction,
             face_filters=face_filters if face_filters else [[]],
-            model_particle_filter_ids = particle_filter,
+            model_particle_filter_ids=particle_filter,
         )
-        
-        # ----- Global collision resolution error ---- 
+
+        # ----- Global collision resolution error ----
         # Add reference shapes for body parts
         if body_parts:
             for part in body_parts:
-                part_v, part_inds = assign.extract_submesh(body_vertices, body_indices, body_parts[part])
-                builder.add_cloth_reference_shape_mesh(
-                    mesh = wp.sim.Mesh(part_v, part_inds),
-                    name = part,
-                    pos = body_pos,
-                    rot = body_rot,
-                    scale = (1.0,1.0,1.0) #performed body scaling above
+                part_v, part_inds = assign.extract_submesh(
+                    body_vertices, body_indices, body_parts[part]
                 )
-            # NOTE: has a side-effect of filling up model.particle_reference_label array 
+                builder.add_cloth_reference_shape_mesh(
+                    mesh=wp.sim.Mesh(part_v, part_inds),
+                    name=part,
+                    pos=body_pos,
+                    rot=body_rot,
+                    scale=(1.0, 1.0, 1.0),  # performed body scaling above
+                )
+            # NOTE: has a side-effect of filling up model.particle_reference_label array
             # Only add reference labels if we actually added reference shapes
             self.body_parts_names2index = builder.add_cloth_reference_labels(
-                cloth_reference_labels, 
-                [   # NOTE: Not adding drag between legs and the body as it's useless and contradicts attachment
-                    ['left_arm', 'body'], 
-                    ['right_arm', 'body'], 
-                    ['left_leg', 'right_leg'],
-                    ['left_arm', 'left_leg'], 
-                    ['right_arm', 'left_leg'], 
-                    ['left_arm', 'right_leg'], 
-                    ['right_arm', 'right_leg'], 
-                    ['left_arm', 'legs'], 
-                    ['right_arm', 'legs'], 
-                ]
+                cloth_reference_labels,
+                [  # NOTE: Not adding drag between legs and the body as it's useless and contradicts attachment
+                    ["left_arm", "body"],
+                    ["right_arm", "body"],
+                    ["left_leg", "right_leg"],
+                    ["left_arm", "left_leg"],
+                    ["right_arm", "left_leg"],
+                    ["left_arm", "right_leg"],
+                    ["right_arm", "right_leg"],
+                    ["left_arm", "legs"],
+                    ["right_arm", "legs"],
+                ],
             )
         else:
             # No body parts found - this shouldn't happen normally
             self.body_parts_names2index = {}
-            logger.warning("No body parts found for reference shapes. Skipping cloth reference labels.")
-        
+            logger.warning(
+                "No body parts found for reference shapes. Skipping cloth reference labels."
+            )
+
         # ----- Attachment constraint -------
         # NOTE: Must be called AFTER reference shapes and labels are added, as attachment
         # may need to reference cloth reference labels
@@ -348,37 +398,37 @@ class SimulationGarment:
             self._add_attachment_labels(builder, config)
 
         # ------- Finalize --------------
-        self.model: wp.sim.Model = builder.finalize(device = self.device) #data is transferred to warp tensors, object used in simulation
+        self.model: wp.sim.Model = builder.finalize(
+            device=self.device
+        )  # data is transferred to warp tensors, object used in simulation
 
     def _add_attachment_labels(
-        self,
-        builder: wp.sim.ModelBuilder,
-        config: SimConfig
+        self, builder: wp.sim.ModelBuilder, config: SimConfig
     ) -> None:
         """Add attachment constraints to the simulation model.
-        
+
         This method processes attachment constraints from the configuration,
         calculates attachment positions and directions, and adds them to the
         simulation builder.
-        
+
         Parameters
         ----------
         builder : wp.sim.ModelBuilder
             Warp simulation model builder to add attachments to.
         config : SimConfig
             Simulation configuration containing attachment constraint definitions.
-            
+
         Note
         ----
         Position calculation priority:
         1. Explicit position (if provided in constraint)
         2. Position calculation from body parameters (if provided)
         3. Label-specific default position
-        
+
         Direction priority:
         1. Explicit direction (if provided in constraint)
         2. Label-specific default direction
-        
+
         If no attachment labels are found, the attachment constraint feature
         is automatically disabled.
         """
@@ -388,99 +438,136 @@ class SimulationGarment:
             vertex_labels = self.garment_data.vertex_labels
             if vertex_labels is None:
                 # Try to extract from BoxMesh if available
-                if hasattr(self.garment_data.box_mesh, 'vertex_labels'):
+                if hasattr(self.garment_data.box_mesh, "vertex_labels"):
                     vertex_labels = self.garment_data.box_mesh.vertex_labels
                 else:
-                    #TODO fix this RuntimeError
-                    raise RuntimeError("No vertex labels available for attachment constraints.")
+                    # TODO fix this RuntimeError
+                    raise RuntimeError(
+                        "No vertex labels available for attachment constraints."
+                    )
         else:
-            raise NotImplementedError("Disk-based body loading is not implemented in this version.") 
-        
+            raise NotImplementedError(
+                "Disk-based body loading is not implemented in this version."
+            )
+
         labels_present = False
         if vertex_labels is None:
-            logger.warning('No vertex labels available for attachment constraints.')
+            logger.warning("No vertex labels available for attachment constraints.")
             config.enable_attachment_constraint = False
             config.update_min_steps()
             return
-        
+
         # Debug: log what constraints we're looking for
         constraint_labels = [c.label_enum.value for c in config.attachment_constraints]
-        logger.debug(f'Looking for attachment labels: {constraint_labels}.')
-        logger.debug(f'Available vertex labels: {list(vertex_labels.keys())}.')
-        
+        logger.debug(f"Looking for attachment labels: {constraint_labels}.")
+        logger.debug(f"Available vertex labels: {list(vertex_labels.keys())}.")
+
         for constraint in config.attachment_constraints:
             # Get label as string
             attach_label = constraint.label_enum.value
-            if attach_label in vertex_labels.keys() and len(vertex_labels[attach_label]) > 0:
+            if (
+                attach_label in vertex_labels.keys()
+                and len(vertex_labels[attach_label]) > 0
+            ):
                 constraint_verts = vertex_labels[attach_label]
-                
+
                 # Calculate position: explicit position > position_calculation > label-specific defaults
                 if constraint.position is not None:
                     # Use explicit position
-                    position = wp.vec3(constraint.position[0], constraint.position[1], constraint.position[2])
+                    position = wp.vec3(
+                        constraint.position[0],
+                        constraint.position[1],
+                        constraint.position[2],
+                    )
                 elif constraint.position_calculation is not None:
                     # Calculate position from body parameters
-                    position = AttachmentConstraintUtils.calculate_position_from_body_params(
-                        constraint.position_calculation, body_def
+                    position = (
+                        AttachmentConstraintUtils.calculate_position_from_body_params(
+                            constraint.position_calculation, body_def
+                        )
                     )
                 else:
                     # Fall back to label-specific defaults
-                    position = AttachmentConstraintUtils.get_default_position_for_label(attach_label, body_def)
+                    position = AttachmentConstraintUtils.get_default_position_for_label(
+                        attach_label, body_def
+                    )
                     if position is None:
-                        logger.warning(f'Requested attachment label {attach_label} is not supported. Skipped.')
+                        logger.warning(
+                            f"Requested attachment label {attach_label} is not supported. Skipped."
+                        )
                         continue
-                
+
                 # Use provided direction or use label-specific default
                 if constraint.direction is not None:
-                    direction = wp.vec3(constraint.direction[0], constraint.direction[1], constraint.direction[2])
+                    direction = wp.vec3(
+                        constraint.direction[0],
+                        constraint.direction[1],
+                        constraint.direction[2],
+                    )
                 else:
-                    direction = AttachmentConstraintUtils.get_default_direction_for_label(attach_label)
-                
+                    direction = (
+                        AttachmentConstraintUtils.get_default_direction_for_label(
+                            attach_label
+                        )
+                    )
+
                 labels_present = True
                 builder.add_attachment(
                     constraint_verts,
                     position,
                     direction,
                     stiffness=constraint.stiffness,
-                    damping=constraint.damping
+                    damping=constraint.damping,
                 )
-                logger.info(f'Using attachment for {attach_label} with {len(constraint_verts)} vertices.')
+                logger.info(
+                    f"Using attachment for {attach_label} with {len(constraint_verts)} vertices."
+                )
 
         if not labels_present:
             # Loaded garment is not labeled -- update config
             config.enable_attachment_constraint = False
             config.update_min_steps()
-            constraint_labels = [c.label_enum.value for c in config.attachment_constraints]
-            logger.warning(f'Requested attachment labels {constraint_labels} are not present. Attachment is turned off.')
+            constraint_labels = [
+                c.label_enum.value for c in config.attachment_constraints
+            ]
+            logger.warning(
+                f"Requested attachment labels {constraint_labels} are not present. Attachment is turned off."
+            )
 
     def _load_panel_labels(self):
         pattern = BasicPattern(self.garment_data.pattern_file)
 
         labels = {}
-        for name, panel in pattern.pattern['panels'].items():
-            labels[name] = panel['label'] if 'label' in panel else ''
+        for name, panel in pattern.pattern["panels"].items():
+            labels[name] = panel["label"] if "label" in panel else ""
 
-        return labels     
+        return labels
 
     def _sim_frame_with_substeps(self):
         """Basic scheme for simulating a frame update"""
-        
-        wp.sim.collide(self.model, self.state_0, self.sim_dt * self.sim_substeps)  # Generates contact points for the particles and rigid bodies
+
+        wp.sim.collide(
+            self.model, self.state_0, self.sim_dt * self.sim_substeps
+        )  # Generates contact points for the particles and rigid bodies
         # in the model, to be used in the contact dynamics kernel of the integrator
         # launches kernels
 
-        for s in range(self.sim_substeps):
+        for _ in range(self.sim_substeps):
             self.state_0.clear_forces()  # set particle and body forces to 0s
-            self.integrator.simulate(self.model, self.state_0, self.state_1,
-                                     self.sim_dt)  # calculate semi-implicit Euler step
+            self.integrator.simulate(
+                self.model, self.state_0, self.state_1, self.sim_dt
+            )  # calculate semi-implicit Euler step
             # launches kernels and calculates new particle (and body) positions and velocities
             # swap states
-            (self.state_0, self.state_1) = (self.state_1, self.state_0)  # swap prev, new state
+            (self.state_0, self.state_1) = (
+                self.state_1,
+                self.state_0,
+            )  # swap prev, new state
 
     def create_graph(self):
         # create update graph
         wp.capture_begin()  # Captures all subsequent kernel launches and memory operations on CUDA devices.
-        
+
         self._sim_frame_with_substeps()
 
         self.graph = wp.capture_end()  # returns a handle to a CUDA graph object that can be launched with :func:`~warp.capture_launch()`
@@ -491,7 +578,9 @@ class SimulationGarment:
             if self.model.enable_particle_particle_collisions:
                 # FIXME: Produces cuda errors when activated together with "enable_cloth_reference_drag"
                 # Reason is unknown. Or not?
-                self.model.particle_grid.build(self.state_0.particle_q, self.model.particle_max_radius * 2.0)
+                self.model.particle_grid.build(
+                    self.state_0.particle_q, self.model.particle_max_radius * 2.0
+                )
             if frame == self.zero_gravity_steps:
                 self.model.gravity = np.array((0.0, -9.81, 0.0))
                 if self.sim_use_graph:
@@ -500,36 +589,39 @@ class SimulationGarment:
                 self.update_smooth_body_shape()
                 if self.sim_use_graph:
                     self.create_graph()
-            if (self.model.attachment_constraint 
-                    and frame >= self.config.attachment_frames):  
+            if (
+                self.model.attachment_constraint
+                and frame >= self.config.attachment_frames
+            ):
                 self.model.attachment_constraint = False
                 if self.sim_use_graph:
                     self.create_graph()
-            
-            if self.sim_use_graph: #GPU
+
+            if self.sim_use_graph:  # GPU
                 wp.capture_launch(self.graph)
 
-            else: #CPU: launch kernels without graph
+            else:  # CPU: launch kernels without graph
                 self._sim_frame_with_substeps()
 
             # Update vertices of last frame
             self.last_verts = self.current_verts
             # NOTE Makes a copy if particle_q device is not CPU
-            self.current_verts = wp.array.numpy(self.state_0.particle_q)  
-            
+            self.current_verts = wp.array.numpy(self.state_0.particle_q)
+
     def update_smooth_body_shape(self):
         body_vertices = self.body_smoothing_vertices_list.pop()
         self.v_body = body_vertices
-        wp.copy(self.body_vertices_device_buffer,
-                wp.array(body_vertices, dtype=wp.vec3, device='cpu', copy=False))
+        wp.copy(
+            self.body_vertices_device_buffer,
+            wp.array(body_vertices, dtype=wp.vec3, device="cpu", copy=False),
+        )
 
         # Apply new vertices and refit the sructures
         wp.launch(
             kernel=replace_mesh_points,
-            dim = len(body_vertices),
-            inputs=[self.body_mesh.mesh.id,
-                    self.body_vertices_device_buffer],
-            device=self.device
+            dim=len(body_vertices),
+            inputs=[self.body_mesh.mesh.id, self.body_vertices_device_buffer],
+            device=self.device,
         )
         self.body_mesh.mesh.refit()
 
@@ -539,16 +631,17 @@ class SimulationGarment:
         This is used for retargeting the garment to a new body pose.
         """
         self.v_body = new_body_vertices
-        wp.copy(self.body_vertices_device_buffer,
-                wp.array(new_body_vertices, dtype=wp.vec3, device='cpu', copy=False))
+        wp.copy(
+            self.body_vertices_device_buffer,
+            wp.array(new_body_vertices, dtype=wp.vec3, device="cpu", copy=False),
+        )
 
         # Apply new vertices and refit the sructures
         wp.launch(
             kernel=replace_mesh_points,
             dim=len(new_body_vertices),
-            inputs=[self.body_mesh.mesh.id,
-                    self.body_vertices_device_buffer],
-            device=self.device
+            inputs=[self.body_mesh.mesh.id, self.body_vertices_device_buffer],
+            device=self.device,
         )
         self.body_mesh.mesh.refit()
 
@@ -575,14 +668,14 @@ class SimulationGarment:
         with open(path) as f:
             data = json.load(f)
             return data
-    
+
     def load_obj(self, path):
         v, f = igl.read_triangle_mesh(str(path))
         return v, f.flatten(), f
 
-    def get_shift_param(self,body_vertices):
+    def get_shift_param(self, body_vertices):
         v_body_arr = np.array(body_vertices)
-        min_y = (min(v_body_arr[:, 1]))
+        min_y = min(v_body_arr[:, 1])
         if min_y < 0:
             return abs(min_y)
         return 0.0
@@ -621,8 +714,8 @@ class SimulationGarment:
 
     def is_static(self):
         """
-            Checks whether garment is in the static equilibrium
-            Compares current state with the last recorded state
+        Checks whether garment is in the static equilibrium
+        Compares current state with the last recorded state
         """
         threshold = self.config.static_threshold
         non_static_percent = self.config.non_static_percent
@@ -639,10 +732,15 @@ class SimulationGarment:
         diff_L1 = np.sum(diff, axis=1)
 
         non_static_len = len(
-            diff_L1[diff_L1 > threshold])  # compare vertex-wise to allow accurate control over outliers
+            diff_L1[diff_L1 > threshold]
+        )  # compare vertex-wise to allow accurate control over outliers
 
-        if non_static_len == 0 or (non_static_len < len(curr_verts_arr) * 0.01 * non_static_percent):
-            logger.info(f'Static with {non_static_len} non-static vertices out of {len(curr_verts_arr)}.')
+        if non_static_len == 0 or (
+            non_static_len < len(curr_verts_arr) * 0.01 * non_static_percent
+        ):
+            logger.info(
+                f"Static with {non_static_len} non-static vertices out of {len(curr_verts_arr)}."
+            )
             # Store last frame
             return True, non_static_len
         else:
@@ -651,7 +749,7 @@ class SimulationGarment:
     def count_self_intersections(self):
         model = self.model
 
-        if model.particle_count and model.spring_count: 
+        if model.particle_count and model.spring_count:
             model.particle_self_intersection_count.zero_()
             wp.launch(
                 kernel=count_self_intersections,
@@ -660,13 +758,11 @@ class SimulationGarment:
                     model.spring_indices,
                     model.particle_shape.id,
                 ],
-                outputs=[
-                    model.particle_self_intersection_count
-                ],
+                outputs=[model.particle_self_intersection_count],
                 device=model.device,
             )
             return int(wp.array.numpy(self.model.particle_self_intersection_count)[0])
-        else: 
+        else:
             return 0
 
     def count_body_intersections(self):
@@ -681,23 +777,25 @@ class SimulationGarment:
                     model.spring_indices,
                     model.particle_shape.id,
                     model.shape_geo,
-                    self.body_shape_index
+                    self.body_shape_index,
                 ],
-                outputs=[
-                    model.body_cloth_intersection_count
-                ],
+                outputs=[model.body_cloth_intersection_count],
                 device=model.device,
             )
             return int(wp.array.numpy(self.model.body_cloth_intersection_count)[0])
         else:
-            return 0 
-        
+            return 0
+
     def _build_vert_connectivity(self, vertices, indices):
         vert_connectivity = [[] for _ in range(len(vertices))]
 
         for face_id in range(int(len(indices) / 3)):
-            v1, v2, v3 = indices[face_id*3 + 0], indices[face_id*3 + 1], indices[face_id*3 + 2]
-            
+            v1, v2, v3 = (
+                indices[face_id * 3 + 0],
+                indices[face_id * 3 + 1],
+                indices[face_id * 3 + 2],
+            )
+
             vert_connectivity[v1].append(v2)
             vert_connectivity[v1].append(v3)
 

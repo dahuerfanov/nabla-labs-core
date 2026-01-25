@@ -6,13 +6,13 @@ from pathlib import Path
 import yaml
 
 
-class PathCofig:
+class PathConfig:
     """
     Routines for getting paths to various relevant objects with standard names.
-    
+
     This class manages all file paths for simulation inputs and outputs, including
     body meshes, garment specifications, simulation results, and rendered images.
-    
+
     Attributes
     ----------
     _system : Properties
@@ -84,7 +84,7 @@ class PathCofig:
     usd : Path
         Path to USD simulation file
     """
-    
+
     # Class variable type annotations
     _bodies_default_path: Path
     _body_samples_path: Path | None
@@ -121,22 +121,24 @@ class PathCofig:
     g_sim_glb: Path
     g_sim_compressed: Path
     usd: Path
-    
-    def __init__(self, 
-                 in_element_path: str | Path, 
-                 out_path: str | Path, 
-                 in_name: str, 
-                 out_name: str | None = None, 
-                 body_name: str = '', 
-                 samples_name: str = '', 
-                 default_body: bool = True,
-                 smpl_body: bool = False,
-                 add_timestamp: bool = False,
-                 bodies_default_path: str | Path | None = None,
-                 body_samples_path: str | Path | None = None) -> None:
+
+    def __init__(
+        self,
+        in_element_path: str | Path,
+        out_path: str | Path,
+        in_name: str,
+        out_name: str | None = None,
+        body_name: str = "",
+        samples_name: str = "",
+        default_body: bool = True,
+        smpl_body: bool = False,
+        add_timestamp: bool = False,
+        bodies_default_path: str | Path | None = None,
+        body_samples_path: str | Path | None = None,
+    ) -> None:
         """
         Initialize path configuration for simulation inputs and outputs.
-        
+
         Parameters
         ----------
         in_element_path : str | Path
@@ -164,8 +166,12 @@ class PathCofig:
         """
         # Set system paths - accept as parameters or fall back to Properties for backward compatibility
         self._bodies_default_path = Path(bodies_default_path)
-        self._body_samples_path = Path(body_samples_path) if body_samples_path is not None else body_samples_path
-        
+        self._body_samples_path = (
+            Path(body_samples_path)
+            if body_samples_path is not None
+            else body_samples_path
+        )
+
         self._body_name = body_name
         self._samples_folder_name = samples_name
         self._use_default_body = default_body
@@ -173,10 +179,14 @@ class PathCofig:
 
         # Tags
         if out_name is None:
-            out_name = bodies_default_path.split('/')[-1]
+            out_name = bodies_default_path.split("/")[-1]
         self.in_tag = in_name
-        self.out_folder_tag = f'{out_name}_{datetime.now().strftime("%y%m%d-%H-%M-%S")}' if add_timestamp else out_name
-        self.sim_tag = out_name 
+        self.out_folder_tag = (
+            f"{out_name}_{datetime.now().strftime('%y%m%d-%H-%M-%S')}"
+            if add_timestamp
+            else out_name
+        )
+        self.sim_tag = out_name
         self.boxmesh_tag = out_name
 
         # Base paths
@@ -184,17 +194,17 @@ class PathCofig:
         self.out = Path(out_path)
         self.out_el = Path(out_path) / self.out_folder_tag
         self.out_el.mkdir(parents=True, exist_ok=True)
-        
+
         # Individual file paths
         self._update_in_paths()
         self._update_boxmesh_paths()
         self.update_in_copies_paths()
         self.update_sim_paths()
-    
+
     def _update_in_paths(self) -> None:
         """
         Update input paths based on body type and configuration.
-        
+
         Determines paths for body meshes, measurements, specifications, and
         segmentation files based on whether using default or sampled bodies.
         """
@@ -203,80 +213,88 @@ class PathCofig:
             self.bodies_path = self._bodies_default_path
         else:
             if self._body_samples_path is None:
-                raise ValueError("body_samples_path must be provided when using sampled bodies")
-            self.bodies_path = self._body_samples_path / self._samples_folder_name / 'meshes'
+                raise ValueError(
+                    "body_samples_path must be provided when using sampled bodies"
+                )
+            self.bodies_path = (
+                self._body_samples_path / self._samples_folder_name / "meshes"
+            )
 
         # Body measurements
         if not self._samples_folder_name:
-            self.in_body_mes = self.bodies_path / 'measurements.yaml'
+            self.in_body_mes = self.bodies_path / "measurements.yaml"
         else:
-            self.in_body_mes = self.input / 'body_measurements.yaml'
-        
+            self.in_body_mes = self.input / "body_measurements.yaml"
+
         with open(self.in_body_mes) as file:
             body_dict = yaml.load(file, Loader=yaml.SafeLoader)
-        if 'body_sample' in body_dict['body']:   # Not present in default measurements
-            self._body_name = body_dict['body']['body_sample']
+        if "body_sample" in body_dict["body"]:  # Not present in default measurements
+            self._body_name = body_dict["body"]["body_sample"]
 
-        self.in_body_obj = self.bodies_path / f'{self._body_name}.obj'
-        self.in_g_spec = self.input / f'{self.in_tag}_specification.json'
-        self.body_seg = 'assets/bodies/smplx_vert_segmentation.json'
-        self.in_design_params = self.input / 'design_params.yaml'
+        self.in_body_obj = self.bodies_path / f"{self._body_name}.obj"
+        self.in_g_spec = self.input / f"{self.in_tag}_specification.json"
+        self.body_seg = "assets/bodies/smplx_vert_segmentation.json"
+        self.in_design_params = self.input / "design_params.yaml"
 
     def _update_boxmesh_paths(self) -> None:
         """
         Update boxmesh output paths.
-        
+
         Sets paths for boxmesh OBJ, compressed PLY, segmentation, edge lengths,
         vertex labels, textures, and material files.
         """
-        self.g_box_mesh = self.out_el / f'{self.boxmesh_tag}_boxmesh.obj'
-        self.g_box_mesh_compressed = self.out_el / f'{self.boxmesh_tag}_boxmesh.ply'
-        self.g_mesh_segmentation = self.out_el / f'{self.boxmesh_tag}_sim_segmentation.txt'
-        self.g_orig_edge_len = self.out_el / f'{self.boxmesh_tag}_orig_lens.pickle'
-        self.g_vert_labels = self.out_el / f'{self.boxmesh_tag}_vertex_labels.yaml'
-        self.g_texture_fabric = self.out_el / f'{self.boxmesh_tag}_texture_fabric.png'
-        self.g_texture = self.out_el / f'{self.boxmesh_tag}_texture.png'
-        self.g_mtl = self.out_el / f'{self.boxmesh_tag}_material.mtl'
-        
+        self.g_box_mesh = self.out_el / f"{self.boxmesh_tag}_boxmesh.obj"
+        self.g_box_mesh_compressed = self.out_el / f"{self.boxmesh_tag}_boxmesh.ply"
+        self.g_mesh_segmentation = (
+            self.out_el / f"{self.boxmesh_tag}_sim_segmentation.txt"
+        )
+        self.g_orig_edge_len = self.out_el / f"{self.boxmesh_tag}_orig_lens.pickle"
+        self.g_vert_labels = self.out_el / f"{self.boxmesh_tag}_vertex_labels.yaml"
+        self.g_texture_fabric = self.out_el / f"{self.boxmesh_tag}_texture_fabric.png"
+        self.g_texture = self.out_el / f"{self.boxmesh_tag}_texture.png"
+        self.g_mtl = self.out_el / f"{self.boxmesh_tag}_material.mtl"
+
     def update_in_copies_paths(self) -> None:
         """
         Update paths for input file copies in output directory.
-        
+
         Sets paths for copies of specifications, simulation properties,
         body measurements, and design parameters in the output directory.
         """
-        self.g_specs = self.out_el / f'{self.in_tag}_specification.json'
-        self.element_sim_props = self.out_el / 'sim_props.yaml'
-        self.body_mes = self.out_el / f'{self.in_tag}_body_measurements.yaml'
-        self.design_params = self.out_el / f'{self.in_tag}_design_params.yaml'
-        
+        self.g_specs = self.out_el / f"{self.in_tag}_specification.json"
+        self.element_sim_props = self.out_el / "sim_props.yaml"
+        self.body_mes = self.out_el / f"{self.in_tag}_body_measurements.yaml"
+        self.design_params = self.out_el / f"{self.in_tag}_design_params.yaml"
+
     def update_sim_paths(self) -> None:
         """
         Update simulation output paths.
-        
+
         Sets paths for simulated garment files including OBJ, GLB, compressed PLY,
         and USD formats.
         """
-        self.g_sim = self.out_el / f'{self.sim_tag}_sim.obj'
-        self.g_sim_glb = self.out_el / f'{self.sim_tag}_sim.glb'
-        self.g_sim_compressed = self.out_el / f'{self.sim_tag}_sim.ply'
-        self.usd = self.out_el / f'{self.sim_tag}_simulation.usd'
+        self.g_sim = self.out_el / f"{self.sim_tag}_sim.obj"
+        self.g_sim_glb = self.out_el / f"{self.sim_tag}_sim.glb"
+        self.g_sim_compressed = self.out_el / f"{self.sim_tag}_sim.ply"
+        self.usd = self.out_el / f"{self.sim_tag}_simulation.usd"
 
-
-    def render_path(self, camera_name: str = '') -> Path:
+    def render_path(self, camera_name: str = "") -> Path:
         """
         Get path for rendered image file.
-        
+
         Parameters
         ----------
         camera_name : str, optional
             Name of the camera view (default: ''). If empty, uses default render name.
-            
+
         Returns
         -------
         Path
             Path to the rendered image PNG file
         """
-        fname = f'{self.sim_tag}_render_{camera_name}.png' if camera_name else f'{self.sim_tag}_render.png'
+        fname = (
+            f"{self.sim_tag}_render_{camera_name}.png"
+            if camera_name
+            else f"{self.sim_tag}_render.png"
+        )
         return self.out_el / fname
-

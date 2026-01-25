@@ -1,7 +1,6 @@
 """Edge representation for box mesh generation."""
 
 import math
-from typing import Optional
 
 import numpy as np
 import svgpathtools as svgpath
@@ -33,9 +32,9 @@ class Edge:
         mesh_resolution: float,
     ) -> None:
         self.endpoints = vertices[list(edge_spec.endpoints)]
-        self.stitch_ref: Optional["Seam"] = None
+        self.stitch_ref: "Seam" | None = None  # noqa: UP037
         self.n_edge_verts = -1
-        self.curve: Optional[svgpath.Path] = None
+        self.curve: svgpath.Path | None = None
         self.init_curve(edge_spec, mesh_resolution)
         self.vertex_range: list[int] = []
         self.label = edge_spec.label
@@ -69,15 +68,21 @@ class Edge:
                     if len(params) > 0 and isinstance(params[0], list):
                         # New format: list of lists
                         control_scale = params[0]  # type: ignore[assignment]
-                    elif len(params) == 2 and all(isinstance(x, (int, float)) for x in params):
+                    elif len(params) == 2 and all(
+                        isinstance(x, (int, float)) for x in params
+                    ):
                         # Legacy format: single list of two floats
                         control_scale = params  # type: ignore[assignment]
                     else:
-                        raise ValueError(f"Invalid quadratic curvature params: {params}")
+                        raise ValueError(
+                            f"Invalid quadratic curvature params: {params}"
+                        )
                 else:
                     raise ValueError(f"Invalid quadratic curvature params: {params}")
                 control_point = pat_utils.rel_to_abs_2d(start, end, control_scale)
-                self.curve = svgpath.QuadraticBezier(*pat_utils.list_to_c([start, control_point, end]))
+                self.curve = svgpath.QuadraticBezier(
+                    *pat_utils.list_to_c([start, control_point, end])
+                )
 
             elif curvature.type == CurvatureType.CIRCLE:
                 # https://svgwrite.readthedocs.io/en/latest/classes/path.html#svgwrite.path.Path.push_arc
@@ -86,7 +91,9 @@ class Edge:
                     radius_val, large_arc_val, right_val = params
                     # Ensure radius is a float
                     if isinstance(radius_val, list):
-                        raise ValueError(f"Invalid circle radius (got list): {radius_val}")
+                        raise ValueError(
+                            f"Invalid circle radius (got list): {radius_val}"
+                        )
                     radius = float(radius_val)
                     large_arc = bool(large_arc_val)
                     right = bool(right_val)
@@ -116,7 +123,9 @@ class Edge:
                 else:
                     raise ValueError(f"Invalid cubic curvature params: {params}")
 
-                self.curve = svgpath.CubicBezier(*pat_utils.list_to_c([start, *cps, end]))
+                self.curve = svgpath.CubicBezier(
+                    *pat_utils.list_to_c([start, *cps, end])
+                )
 
             else:
                 raise NotImplementedError(
@@ -138,7 +147,9 @@ class Edge:
                 f"Mesh resolution might be too low. Resolution = {res}, edge length = {edgelength}"
             )
 
-    def set_vertex_range(self, start_idx: int, begin_in: int, end_in: int, end_idx: int) -> None:
+    def set_vertex_range(
+        self, start_idx: int, begin_in: int, end_in: int, end_idx: int
+    ) -> None:
         """
         Set the vertex range of the current edge in the context of a panel.
 
@@ -186,7 +197,11 @@ class Edge:
         cp = [pat_utils.c_to_np(c) for c in self.curve.bpoints()[1:-1]]
         nodes = np.vstack(([0, 0], cp, [1, 0]))
         params = nodes[:, 0] + 1j * nodes[:, 1]
-        return svgpath.QuadraticBezier(*params) if len(cp) < 2 else svgpath.CubicBezier(*params)
+        return (
+            svgpath.QuadraticBezier(*params)
+            if len(cp) < 2
+            else svgpath.CubicBezier(*params)
+        )
 
     def linearize(self, panel_vertices: list[np.ndarray]) -> list:
         """
@@ -213,4 +228,3 @@ class Edge:
                 pair = [edge_vertices[i], edge_vertices[i + 1]]
                 edge_seq.append(pair)
             return edge_seq
-

@@ -14,7 +14,7 @@ from loguru import logger
 
 import weon_garment_code.pygarment.pattern.utils as pat_utils
 import weon_garment_code.pygarment.pattern.wrappers as wrappers
-from weon_garment_code.config import AttachmentConstraint, PathCofig
+from weon_garment_code.config import AttachmentConstraint, PathConfig
 from weon_garment_code.pygarment.meshgen.arap.arap_protocol import ARAPInitializable
 from weon_garment_code.pygarment.meshgen.arap.arap_types import (
     MeshRingConnection,
@@ -2031,8 +2031,8 @@ class BoxMesh(wrappers.VisPattern):
             out_mtl_file_path=self.paths.g_mtl,
             boundary_width=uv_config["seam_width"],
             dpi=uv_config["dpi"],
-            background_img_path=uv_config["fabric_grain_texture_path"],
-            background_resolution=uv_config["fabric_grain_resolution"],
+            # background_img_path=uv_config["fabric_grain_texture_path"],
+            # background_resolution=uv_config["fabric_grain_resolution"],
             mat_name=mat_name,
         )
         save_obj(
@@ -2076,7 +2076,7 @@ class BoxMesh(wrappers.VisPattern):
 
     def serialize(  # type: ignore[override]
         self,
-        paths: PathCofig,
+        paths: PathConfig,
         tag: str = "",
         with_3d: bool = False,
         with_text: bool = False,
@@ -2093,7 +2093,7 @@ class BoxMesh(wrappers.VisPattern):
 
         Parameters
         ----------
-        paths : PathCofig
+        paths : PathConfig
             Path configuration object
         tag : str
             Tag to append to filenames

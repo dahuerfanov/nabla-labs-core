@@ -39,7 +39,7 @@ class PatternData:
         Design parameters dictionary.
     attachment_constraints : list[AttachmentConstraint]
         List of attachment constraints for simulation.
-    paths : PathCofig
+    paths : PathConfig
         Path configuration object containing all necessary file paths.
     """
 

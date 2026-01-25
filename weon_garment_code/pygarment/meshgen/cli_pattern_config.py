@@ -8,7 +8,6 @@ specific use case.
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 
@@ -16,11 +15,11 @@ from loguru import logger
 @dataclass
 class CLIPatternConfig:
     """Configuration for CLI pattern generation.
-    
+
     This class holds all the necessary configuration properties for generating
     sewing patterns from design files via the command-line interface. It replaces
     dictionary-based configuration with a type-safe class structure.
-    
+
     Attributes
     ----------
     design_file : Path
@@ -37,39 +36,37 @@ class CLIPatternConfig:
         Generated output folder name (includes timestamp). Set automatically
         during pattern generation. Default is None.
     """
-    
+
     design_file: Path
     body_name: str
     output_name: str
     perfect_fit: bool = False
     to_subfolders: bool = True
-    output_folder: Optional[str] = field(default=None, init=False)
-    
+    output_folder: str | None = field(default=None, init=False)
+
     def __post_init__(self) -> None:
         """Validate and normalize configuration after initialization."""
         # Ensure design_file is a Path object
         if isinstance(self.design_file, str):
             self.design_file = Path(self.design_file)
-        
+
         # Validate design file exists
         if not self.design_file.exists():
-            raise FileNotFoundError(
-                f"Design file not found: {self.design_file}"
-            )
-        
+            raise FileNotFoundError(f"Design file not found: {self.design_file}")
+
         # Remove .yaml extension from body_name if present
-        if self.body_name.endswith('.yaml'):
+        if self.body_name.endswith(".yaml"):
             self.body_name = self.body_name[:-5]
-    
+
     def generate_output_folder_name(self, regenerate: bool = False) -> str:
         """Generate a unique output folder name with timestamp.
-        
+
         Parameters
         ----------
         regenerate : bool, optional
             If True and output_folder is already set, creates a new name with
             '_regen' suffix. Default is False.
-        
+
         Returns
         -------
         str
@@ -79,24 +76,26 @@ class CLIPatternConfig:
             base_name = f"{self.output_folder}_regen"
         else:
             base_name = self.output_name
-        
-        timestamp = datetime.now().strftime('%y%m%d-%H-%M-%S')
+
+        timestamp = datetime.now().strftime("%y%m%d-%H-%M-%S")
         self.output_folder = f"{base_name}_{timestamp}"
-        
+
         logger.debug(f"Generated output folder name: {self.output_folder}")
         return self.output_folder
-    
+
     @property
     def pattern_output_name(self) -> str:
         """Get the pattern output name (output_folder if set, otherwise output_name).
-        
+
         Returns
         -------
         str
             Pattern output name.
         """
-        return self.output_folder if self.output_folder is not None else self.output_name
-    
+        return (
+            self.output_folder if self.output_folder is not None else self.output_name
+        )
+
     def __str__(self) -> str:
         """String representation of the configuration."""
         return (
@@ -107,4 +106,3 @@ class CLIPatternConfig:
             f"perfect_fit={self.perfect_fit}, "
             f"output_folder={self.output_folder})"
         )
-

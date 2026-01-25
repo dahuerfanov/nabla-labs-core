@@ -1,7 +1,5 @@
 """Seam representation for box mesh generation."""
 
-from typing import Optional
-
 
 class Seam:
     """
@@ -33,8 +31,8 @@ class Seam:
         edge_1: int,
         panel_2_name: str,
         edge_2: int,
-        label: Optional[str] = None,
-        n_verts: Optional[int] = None,
+        label: str | None = None,
+        n_verts: int | None = None,
         swap: bool = True,
     ) -> None:
         self.panel_1 = panel_1_name
@@ -46,7 +44,8 @@ class Seam:
         # NOTE: default connection of stitches is edge1 end-> edge2 start
         # following manifold condition
         # => stitch right side to the right side of the fabric pieces
-        self.swap = swap  # Default swap state connects right side to the right side of fabric
+        self.swap = (
+            swap  # Default swap state connects right side to the right side of fabric
+        )
 
         self.n_verts = n_verts  # Number of mesh vertices
-

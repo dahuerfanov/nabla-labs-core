@@ -1,19 +1,20 @@
 """Helper functions for the triangulation of the panels"""
 
-import numpy as np
-import matplotlib.pyplot as plt
-from loguru import logger
-
 # CGAL 2D
 import CGAL.CGAL_Kernel
+import matplotlib.pyplot as plt
+import numpy as np
+from CGAL import CGAL_Mesh_2  # noqa: F401
 from CGAL.CGAL_Kernel import Point_2
-from CGAL.CGAL_Mesh_2 import Mesh_2_Constrained_Delaunay_triangulation_2
-from CGAL.CGAL_Mesh_2 import Delaunay_mesh_size_criteria_2
-from CGAL import CGAL_Mesh_2
-from CGAL.CGAL_Triangulation_2 import Constrained_Delaunay_triangulation_2
+from CGAL.CGAL_Mesh_2 import (
+    Delaunay_mesh_size_criteria_2,  # noqa: F401
+    Mesh_2_Constrained_Delaunay_triangulation_2,  # noqa: F401
+)
+from CGAL.CGAL_Triangulation_2 import Constrained_Delaunay_triangulation_2  # noqa: F401
+from loguru import logger
 
 
-class FaceInfo2(object):
+class FaceInfo2(object):  # noqa: UP004
     """
     https://github.com/CGAL/cgal-swig-bindings/blob/main/examples/python/polygonal_triangulation.py#L9
     """
@@ -349,7 +350,7 @@ def is_manifold(face_v_ids: np.ndarray, points: np.ndarray, tol: float = 1e-2) -
     side_lengths = np.stack([face_side_1, face_side_2, face_side_3], axis=-1)
 
     triangle_inequality = side_lengths.sum(axis=1) > 2 * side_lengths.max(axis=1) + tol
-    all_valid = np.all(triangle_inequality)
+    all_valid = np.all(triangle_inequality).item()
 
     if not all_valid:
         degenerate_mask = ~triangle_inequality

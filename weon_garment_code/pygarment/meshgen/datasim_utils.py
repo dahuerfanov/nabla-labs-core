@@ -5,7 +5,7 @@ import platform
 import signal
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 import warp as wp
@@ -29,7 +29,6 @@ from weon_garment_code.pygarment.meshgen.arap.ring_identifier import identify_ri
 from weon_garment_code.pygarment.meshgen.arap.types import GarmentCategory
 from weon_garment_code.pygarment.meshgen.box_mesh_gen import BoxMesh
 from weon_garment_code.pygarment.meshgen.constants import Z_OFFSET_ARAP
-from weon_garment_code.pygarment.meshgen.garment_data import GarmentData
 from weon_garment_code.pygarment.meshgen.init_programs import (
     PantsInitializer,
     ShirtInitializer,
@@ -39,17 +38,15 @@ from weon_garment_code.pygarment.meshgen.pattern_data import (
     PatternData,
     SimulationConfig,
 )
+from weon_garment_code.pygarment.meshgen.sim_data import GarmentData, GCTryOnPerson
 from weon_garment_code.pygarment.meshgen.simulation import run_sim
 from weon_garment_code.pygarment.meshgen.topology import BodyPartitioner
-
-if TYPE_CHECKING:
-    from weon_garment_code.pattern_data_sim import GC_TryOnPerson
 
 
 def batch_simulate_garment(
     pattern_data: dict[str, PatternData],
     sim_config: SimulationConfig,
-    try_on_person: "GC_TryOnPerson",
+    try_on_person: GCTryOnPerson,
     num_samples: int | None = None,
     output_dir: Path | None = None,
 ) -> bool:
@@ -107,7 +104,7 @@ def batch_simulate_garment(
 def simulate_garment(
     pattern_data: PatternData,
     sim_config: SimulationConfig,
-    try_on_person: "GC_TryOnPerson",
+    try_on_person: GCTryOnPerson,
     output_dir: Path | None = None,
 ) -> Any:
     """Simulate a garment template using in-memory pattern data.

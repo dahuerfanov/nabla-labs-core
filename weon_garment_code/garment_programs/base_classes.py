@@ -1,6 +1,6 @@
 import math
 from collections.abc import Callable
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import weon_garment_code.pygarment.garmentcode as pyg
 from weon_garment_code.config import AttachmentConstraint
@@ -8,13 +8,17 @@ from weon_garment_code.garment_programs.garment_enums import InterfaceName
 from weon_garment_code.pattern_definitions.body_definition import BodyDefinition
 from weon_garment_code.pattern_definitions.torso_design import TorsoDesign
 
+if TYPE_CHECKING:
+    from weon_garment_code.pygarment.garmentcode.interface import Interface
+    from weon_garment_code.pygarment.meshgen.box_mesh_gen.box_mesh import BoxMesh
+
 
 class VertexProcessorProvider(Protocol):
     """Protocol for garment programs that provide vertex processor callbacks."""
 
     def get_vertex_processor_callback(
         self,
-    ) -> Callable[[Any, list[int], Any], list[int]] | None:
+    ) -> Callable[[Any, list[int], "BoxMesh"], list[int]] | None:
         """Get the vertex processor callback for attachment constraints.
 
         Returns:
@@ -33,6 +37,7 @@ class BaseBodicePanel(pyg.Panel):
     neck_width: float
     torso_design: TorsoDesign
     armhole_edge: pyg.Edge
+    interfaces: dict[str, "Interface"]
 
     def __init__(self, name: str, torso_design: TorsoDesign) -> None:
         super().__init__(name)
@@ -42,13 +47,15 @@ class BaseBodicePanel(pyg.Panel):
         )
         self.neck_width = torso_design.neck_width
 
+        self.neck_width = torso_design.neck_width
+
         self.interfaces = {
-            InterfaceName.OUTSIDE: object(),
-            InterfaceName.INSIDE: object(),
-            InterfaceName.SHOULDER: object(),
-            InterfaceName.BOTTOM: object(),
-            InterfaceName.SHOULDER_CORNER: object(),
-            InterfaceName.COLLAR_CORNER: object(),
+            InterfaceName.OUTSIDE: cast("Interface", object()),
+            InterfaceName.INSIDE: cast("Interface", object()),
+            InterfaceName.SHOULDER: cast("Interface", object()),
+            InterfaceName.BOTTOM: cast("Interface", object()),
+            InterfaceName.SHOULDER_CORNER: cast("Interface", object()),
+            InterfaceName.COLLAR_CORNER: cast("Interface", object()),
         }
 
     def get_width(self, level: float) -> float:
@@ -68,7 +75,9 @@ class BaseBodicePanel(pyg.Panel):
         if y < 0:
             x, y = -x, -y
 
-        return (level * x / y) + self.neck_to_shoulder_delta_x + self.neck_width / 2
+        return float(
+            (level * x / y) + self.neck_to_shoulder_delta_x + self.neck_width / 2
+        )
 
 
 class BaseBottoms(pyg.Component):
@@ -88,7 +97,9 @@ class BaseBottoms(pyg.Component):
         )
 
         # Set of interfaces that need to be implemented
-        self.interfaces = {InterfaceName.TOP: object()}
+        self.interfaces: dict[str, "Interface"] = {  # noqa: UP037
+            InterfaceName.TOP: cast("Interface", object())
+        }
 
     @staticmethod
     def get_attachment_constraints() -> list[AttachmentConstraint]:
@@ -132,10 +143,10 @@ class StackableSkirtComponent(BaseBottoms):
 
         # Set of interfaces that need to be implemented
         self.interfaces = {
-            InterfaceName.TOP: object(),
-            InterfaceName.BOTTOM_F: object(),
-            InterfaceName.BOTTOM_B: object(),
-            InterfaceName.BOTTOM: object(),
+            InterfaceName.TOP: cast("Interface", object()),
+            InterfaceName.BOTTOM_F: cast("Interface", object()),
+            InterfaceName.BOTTOM_B: cast("Interface", object()),
+            InterfaceName.BOTTOM: cast("Interface", object()),
         }
 
 
@@ -161,11 +172,14 @@ class BaseBand(pyg.Component):
         self.rise = rise
 
         # Set of interfaces that need to be implemented
-        self.interfaces = {InterfaceName.TOP: object(), InterfaceName.BOTTOM: object()}
+        self.interfaces: dict[str, "Interface"] = {  # noqa: UP037
+            InterfaceName.TOP: cast("Interface", object()),
+            InterfaceName.BOTTOM: cast("Interface", object()),
+        }
 
     def length(self) -> float:
         """Base length == Length of a first panel"""
-        return self._get_subcomponents()[0].length()
+        return float(self._get_subcomponents()[0].length())
 
     @staticmethod
     def get_attachment_constraints() -> list[AttachmentConstraint]:

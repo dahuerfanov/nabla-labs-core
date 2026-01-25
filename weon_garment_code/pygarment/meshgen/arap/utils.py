@@ -1,6 +1,11 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import numpy as np
 
-from weon_garment_code.pygarment.meshgen.box_mesh_gen import BoxMesh
+if TYPE_CHECKING:
+    from weon_garment_code.pygarment.meshgen.box_mesh_gen import BoxMesh
 
 
 def extract_mesh_from_boxmesh(box_mesh: BoxMesh) -> tuple[np.ndarray, np.ndarray]:

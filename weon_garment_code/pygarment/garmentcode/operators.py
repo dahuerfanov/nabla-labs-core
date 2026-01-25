@@ -383,10 +383,7 @@ def _fit_location_corner(l, diff_target, curve1, curve2, verbose: bool = False):
 
     if verbose:
         logger.debug(
-            "Location Progression: {} {}".format(
-                (diff_curr[0] - diff_target[0]) ** 2,
-                (diff_curr[1] - diff_target[1]) ** 2,
-            )
+            f"Location Progression: {(diff_curr[0] - diff_target[0]) ** 2} {(diff_curr[1] - diff_target[1]) ** 2}"
         )
 
     return (diff_curr[0] - diff_target[0]) ** 2 + (diff_curr[1] - diff_target[1]) ** 2

@@ -175,7 +175,7 @@ class Interface:
 
         verts_2d = []
         matching_panels = []
-        for e, panel in zip(self.edges, self.panel):
+        for e, panel in zip(self.edges, self.panel, strict=True):
             if all(e.start is not v for v in verts_2d):  # Ensuring uniqueness
                 verts_2d.append(e.start)
                 matching_panels.append(panel)
@@ -186,7 +186,7 @@ class Interface:
 
         # To 3D
         verts_3d = []
-        for v, panel in zip(verts_2d, matching_panels):
+        for v, panel in zip(verts_2d, matching_panels, strict=True):
             verts_3d.append(panel.point_to_3D(v))
 
         return np.asarray(verts_3d)
@@ -196,7 +196,7 @@ class Interface:
 
         # NOTE: Vertex repetitions don't matter for bbox evaluation
         verts_3d = []
-        for e, panel in zip(self.edges, self.panel):
+        for e, panel in zip(self.edges, self.panel, strict=True):
             # Using curve linearization for more accurate approximation of bbox
             lin_edges = e.linearize()
             verts_2d = lin_edges.verts()
@@ -275,7 +275,7 @@ class Interface:
         edges e.g. if moving 0 -> 1, specify the new location for 1 as well
         """
 
-        for i, j in zip(curr_edge_ids, projected_edge_ids):
+        for i, j in zip(curr_edge_ids, projected_edge_ids, strict=True):
             for r in self.ruffle:
                 if (
                     i >= r["sec"][0]

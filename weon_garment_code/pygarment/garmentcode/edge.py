@@ -40,7 +40,7 @@ class Edge:
             start = [0, 0]
         if end is None:
             end = [0, 0]
-        assert not all(close_enough(s, e) for s, e in zip(start, end)), (
+        assert not all(close_enough(s, e) for s, e in zip(start, end, strict=True)), (
             "Start and end of an edge should differ"
         )
 
@@ -742,7 +742,7 @@ class EdgeSequence:
     """
 
     def __init__(self, *args, verbose: bool = False) -> None:
-        self.edges = []
+        self.edges: list[Edge] = []
         self.verbose = verbose
         for arg in args:
             self.append(arg)

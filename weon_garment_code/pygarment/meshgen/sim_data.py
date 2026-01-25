@@ -1,0 +1,73 @@
+"""Data structures for passing in-memory garment data to simulation."""
+
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+import trimesh
+
+from weon_garment_code.pattern_definitions.body_definition import BodyDefinition
+from weon_garment_code.pygarment.meshgen.box_mesh_gen import BoxMesh
+
+
+@dataclass
+class GCTryOnPerson:
+    """Represents a person model for virtual try-on simulation.
+
+    Attributes:
+        model_name (str): Name/identifier of the body model.
+        measurements (dict): Dictionary containing body measurements.
+        intermediate_meshes (list[trimesh.Trimesh]): List of body meshes including initial pose, target pose and intermediate poses.
+        segmentation_mapping (dict): Segmentation information for body parts.
+    """
+
+    model_name: str
+    measurements: dict
+    intermediate_meshes: list[trimesh.Trimesh]
+    segmentation_mapping: dict
+
+
+@dataclass
+class GarmentData:
+    """
+    Container for in-memory garment and body data to avoid disk I/O.
+
+    This class holds all the data structures needed by Cloth.build_stage()
+    that would otherwise be read from disk. When provided, Cloth will use
+    this data directly instead of reading from files.
+
+    Attributes
+    ----------
+    box_mesh : BoxMesh
+        Loaded BoxMesh object containing the garment mesh data.
+        Must have been loaded (box_mesh.loaded == True) before use.
+    body_definition : BodyDefinition
+        Body definition object for accessing body measurements and parameters.
+    body_vertices : np.ndarray
+        Body mesh vertices (Nx3 array).
+    body_indices : np.ndarray
+        Body mesh indices (flattened array for Warp).
+    body_faces : np.ndarray
+        Body mesh faces (Mx3 array).
+    body_segmentation : dict
+        Body segmentation dictionary (from JSON file).
+    vertex_labels : dict, optional
+        Vertex labels dictionary mapping label names to vertex indices.
+        If None, will be loaded from file or extracted from BoxMesh.
+    """
+
+    box_mesh: BoxMesh
+    body_definition: BodyDefinition
+    body_vertices: np.ndarray
+    body_indices: np.ndarray
+    body_faces: np.ndarray
+    body_segmentation: dict[str, Any]
+    pattern_file: dict
+    vertex_labels: dict[str, list[int]] | None = None
+
+    def __post_init__(self):
+        """Validate that BoxMesh is loaded."""
+        if not self.box_mesh.loaded:
+            raise ValueError(
+                "BoxMesh must be loaded (call box_mesh.load()) before creating GarmentData"
+            )

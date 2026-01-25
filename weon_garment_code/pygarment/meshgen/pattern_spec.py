@@ -6,7 +6,6 @@ replacing dictionary-based access with proper classes and enums.
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Optional
 
 import numpy as np
 
@@ -90,7 +89,7 @@ class EdgeSpec:
     """
 
     endpoints: tuple[int, int]
-    curvature: Optional[CurvatureSpec] = None
+    curvature: CurvatureSpec | None = None
     label: str = ""
 
     @classmethod
@@ -263,7 +262,7 @@ class PatternSpec:
 
     panels: dict[str, PanelSpec]
     stitches: list[StitchSpec]
-    panel_order: Optional[list[str]] = None
+    panel_order: list[str] | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "PatternSpec":
@@ -287,11 +286,12 @@ class PatternSpec:
 
         stitches = []
         if "stitches" in data:
-            stitches = [StitchSpec.from_list(stitch_data) for stitch_data in data["stitches"]]
+            stitches = [
+                StitchSpec.from_list(stitch_data) for stitch_data in data["stitches"]
+            ]
 
         return cls(
             panels=panels,
             stitches=stitches,
             panel_order=data.get("panel_order"),
         )
-

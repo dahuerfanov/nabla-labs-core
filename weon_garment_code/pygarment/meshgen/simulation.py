@@ -1,6 +1,6 @@
 import time
 import traceback
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 import trimesh
@@ -8,15 +8,12 @@ import warp as wp
 from loguru import logger
 from tqdm import tqdm  # type: ignore[import-untyped]
 
-from weon_garment_code.config import PathCofig
+from weon_garment_code.config import PathConfig
 from weon_garment_code.config.dataset_properties import DatasetProperties
 from weon_garment_code.config.sim_config import SimConfig
 from weon_garment_code.pygarment.meshgen.garment import SimulationGarment
-from weon_garment_code.pygarment.meshgen.garment_data import GarmentData
 from weon_garment_code.pygarment.meshgen.render.pythonrender import render_images
-
-if TYPE_CHECKING:
-    from weon_garment_code.pattern_data_sim import GC_TryOnPerson
+from weon_garment_code.pygarment.meshgen.sim_data import GarmentData, GCTryOnPerson
 
 wp.init()
 
@@ -27,14 +24,14 @@ class SimulationError(BaseException):
     pass
 
 
-def optimize_garment_storage(paths: PathCofig) -> None:
+def optimize_garment_storage(paths: PathConfig) -> None:
     """Prepare the data element for compact storage.
 
     Converts OBJ meshes to PLY format and removes texture files to reduce storage size.
 
     Parameters
     ----------
-    paths : PathCofig
+    paths : PathConfig
         Path configuration object containing paths to garment mesh files.
 
     Note
@@ -139,7 +136,7 @@ def sim_frame_sequence(
 def run_sim(
     cloth_name: str,
     props: dict[str, Any],
-    try_on_person: "GC_TryOnPerson",
+    try_on_person: GCTryOnPerson,
     garment_data: GarmentData | None = None,
 ) -> tuple[trimesh.Trimesh, dict[str, np.ndarray]]:
     """Initialize and run the simulation.
@@ -156,7 +153,7 @@ def run_sim(
         Will be converted to DatasetProperties internally. Must have keys:
         - 'sim': Dictionary with simulation configuration and stats
         - 'render': Dictionary with rendering configuration and stats
-    paths : PathCofig
+    paths : PathConfig
         Path configuration object containing all necessary file paths.
     save_v_norms : bool, optional
         Whether to save vertex normals in the output mesh. Default is False.

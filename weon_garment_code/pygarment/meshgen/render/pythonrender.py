@@ -1,7 +1,7 @@
 import os
 import platform
 
-if platform.system() == 'Linux':
+if platform.system() == "Linux":
     os.environ["PYOPENGL_PLATFORM"] = "egl"
 import numpy as np
 import pyrender
@@ -15,31 +15,37 @@ def rotate_matrix_y(matrix, angle_deg):
     rotation_angle = angle_deg * (np.pi / 180)
 
     # Define the rotation matrix for 180-degree rotation around the y-axis
-    rotation_matrix = np.array([
-        [np.cos(rotation_angle), 0, np.sin(rotation_angle), 0],
-        [0, 1, 0, 0],
-        [-np.sin(rotation_angle), 0, np.cos(rotation_angle), 0],
-        [0, 0, 0, 1]
-    ])
+    rotation_matrix = np.array(
+        [
+            [np.cos(rotation_angle), 0, np.sin(rotation_angle), 0],
+            [0, 1, 0, 0],
+            [-np.sin(rotation_angle), 0, np.cos(rotation_angle), 0],
+            [0, 0, 0, 1],
+        ]
+    )
 
     # Apply the rotation to the mesh vertices
     rot_matrix = np.dot(rotation_matrix, matrix)
     return rot_matrix
+
 
 def rotate_matrix_x(matrix, angle_deg):
     rotation_angle = angle_deg * (np.pi / 180)
 
     # Define the rotation matrix for 180-degree rotation around the y-axis
-    rotation_matrix = np.array([
-        [1, 0, 0, 0],
-        [0, np.cos(rotation_angle), -np.sin(rotation_angle), 0],
-        [0, np.sin(rotation_angle), np.cos(rotation_angle), 0],
-        [0, 0, 0, 1]
-    ])
+    rotation_matrix = np.array(
+        [
+            [1, 0, 0, 0],
+            [0, np.cos(rotation_angle), -np.sin(rotation_angle), 0],
+            [0, np.sin(rotation_angle), np.cos(rotation_angle), 0],
+            [0, 0, 0, 1],
+        ]
+    )
 
     # Apply the rotation to the mesh vertices
     rot_matrix = np.dot(rotation_matrix, matrix)
     return rot_matrix
+
 
 def get_bounding_box_edges(mesh):
     # Calculate the bounding box of the mesh
@@ -55,28 +61,29 @@ def get_bounding_box_edges(mesh):
         [min_coords[0], min_coords[1], max_coords[2]],
         [max_coords[0], min_coords[1], max_coords[2]],
         [min_coords[0], max_coords[1], max_coords[2]],
-        max_coords
+        max_coords,
     ]
 
     return corners
 
-def create_camera(pyrender, pyrender_body_mesh, scene, side, camera_location=None):
 
+def create_camera(pyrender, pyrender_body_mesh, scene, side, camera_location=None):
     # Create a camera
-    y_fov = np.pi / 6. 
+    y_fov = np.pi / 6.0
     camera = pyrender.PerspectiveCamera(yfov=y_fov)
-    
 
     if camera_location is None:
         # Evaluate w.r.t. body
 
-        fov = 50  # Set your desired field of view in degrees 
+        fov = 50  # Set your desired field of view in degrees
 
         # # Calculate the bounding box center of the mesh
         bounding_box_center = pyrender_body_mesh.bounds.mean(axis=0)
 
         # Calculate the diagonal length of the bounding box
-        diagonal_length = np.linalg.norm(pyrender_body_mesh.bounds[1] - pyrender_body_mesh.bounds[0])
+        diagonal_length = np.linalg.norm(
+            pyrender_body_mesh.bounds[1] - pyrender_body_mesh.bounds[0]
+        )
 
         # Calculate the distance of the camera from the object based on the diagonal length
         distance = 1.5 * diagonal_length / (2 * np.tan(np.radians(fov / 2)))
@@ -85,27 +92,30 @@ def create_camera(pyrender, pyrender_body_mesh, scene, side, camera_location=Non
         camera_location[-1] += distance
 
     # Calculate the camera pose
-    camera_pose = np.array([
-        [1.0, 0.0, 0.0, camera_location[0]],
-        [0.0, 1.0, 0.0, camera_location[1]],
-        [0.0, 0.0, 1.0, camera_location[2]],
-        [0.0, 0.0, 0.0, 1.0]
-    ])
+    camera_pose = np.array(
+        [
+            [1.0, 0.0, 0.0, camera_location[0]],
+            [0.0, 1.0, 0.0, camera_location[1]],
+            [0.0, 0.0, 1.0, camera_location[2]],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
 
     # Apply rotations based on view type
-    if side in ('straight-front', 'straight-back'):
+    if side in ("straight-front", "straight-back"):
         # Straight views: no rotations, just position
-        if side == 'straight-back':
+        if side == "straight-back":
             camera_pose = rotate_matrix_y(camera_pose, 180)
     else:
         # Angled views: apply standard rotations
         camera_pose = rotate_matrix_x(camera_pose, -15)
         camera_pose = rotate_matrix_y(camera_pose, 20)
-        if side == 'back':
+        if side == "back":
             camera_pose = rotate_matrix_y(camera_pose, 180)
 
     # Set camera's pose in the scene
     scene.add(camera, pose=camera_pose)
+
 
 def create_lights(scene, intensity=30.0):
     light_positions = [
@@ -113,14 +123,14 @@ def create_lights(scene, intensity=30.0):
         np.array([1.31844, 1.92831, -2.52238]),
         np.array([-2.80522, 1.2594, 2.34624]),
         np.array([0.160261, 1.81789, 3.52215]),
-        np.array([-2.65752, 1.41194, -1.26328])
+        np.array([-2.65752, 1.41194, -1.26328]),
     ]
     light_colors = [
         [1.0, 1.0, 1.0],
         [1.0, 1.0, 1.0],
         [1.0, 1.0, 1.0],
         [1.0, 1.0, 1.0],
-        [1.0, 1.0, 1.0]
+        [1.0, 1.0, 1.0],
     ]
 
     # Add lights to the scene
@@ -130,18 +140,20 @@ def create_lights(scene, intensity=30.0):
         light_pose[:3, 3] = light_positions[i]
         scene.add(light, pose=light_pose)
 
+
 def render(
-        pyrender_garm_mesh, pyrender_body_mesh, 
-        side, 
-        render_config: RenderConfig | None = None
-    ):
+    pyrender_garm_mesh,
+    pyrender_body_mesh,
+    side,
+    render_config: RenderConfig | None = None,
+):
     if render_config and render_config.resolution:
         view_width, view_height = render_config.resolution
     else:
         view_width, view_height = 1080, 1080
     # Create a pyrender scene
-    scene = pyrender.Scene(bg_color=(1., 1., 1., 0.))  # Transparent!
-    
+    scene = pyrender.Scene(bg_color=(1.0, 1.0, 1.0, 0.0))  # Transparent!
+
     # Create a pyrender mesh object from the trimesh object
     # Add the mesh to the scene
     scene.add(pyrender_garm_mesh)
@@ -150,28 +162,30 @@ def render(
     # Select appropriate camera location based on side
     camera_location = None
     if render_config:
-        if side == 'straight-front' and render_config.straight_front_camera_location:
+        if side == "straight-front" and render_config.straight_front_camera_location:
             camera_location = render_config.straight_front_camera_location
-        elif side == 'straight-back' and render_config.straight_back_camera_location:
+        elif side == "straight-back" and render_config.straight_back_camera_location:
             camera_location = render_config.straight_back_camera_location
-        elif side in ('front', 'back') and render_config.front_camera_location:
+        elif side in ("front", "back") and render_config.front_camera_location:
             camera_location = render_config.front_camera_location
-    
+
     create_camera(
-        pyrender, pyrender_body_mesh, scene, side,
-        camera_location=camera_location
+        pyrender, pyrender_body_mesh, scene, side, camera_location=camera_location
     )
 
-    create_lights(scene, intensity=80.)
+    create_lights(scene, intensity=80.0)
 
     # Create a renderer
-    renderer = pyrender.OffscreenRenderer(viewport_width=view_width, viewport_height=view_height)
+    renderer = pyrender.OffscreenRenderer(
+        viewport_width=view_width, viewport_height=view_height
+    )
 
     # Render the scene
     color, _ = renderer.render(scene, flags=pyrender.RenderFlags.RGBA)
 
     image = Image.fromarray(color)
     return image
+
 
 def load_meshes(garm_mesh, body_v, body_f):
     # Load body mesh
@@ -181,24 +195,25 @@ def load_meshes(garm_mesh, body_v, body_f):
     body_material = pyrender.MetallicRoughnessMaterial(
         baseColorFactor=(0.0, 0.0, 0.0, 1.0),  # RGB color, Alpha
         metallicFactor=0.658,  # Range: [0.0, 1.0]
-        roughnessFactor=0.5  # Range: [0.0, 1.0]
+        roughnessFactor=0.5,  # Range: [0.0, 1.0]
     )
     pyrender_body_mesh = pyrender.Mesh.from_trimesh(body_mesh, material=body_material)
 
     # Material adjustments
     # material = garm_mesh.visual.material.to_pbr()
     # material.baseColorFactor = [1., 1., 1., 1.]
-    # material.doubleSided = True  # color both face sides  
+    # material.doubleSided = True  # color both face sides
     # # NOTE remove transparency -- add white background just in case
     # white_back = Image.new('RGBA', material.baseColorTexture.size, color=(255, 255, 255, 255))
     # white_back.paste(material.baseColorTexture)
-    # material.baseColorTexture = white_back.convert('RGB')  
+    # material.baseColorTexture = white_back.convert('RGB')
 
     # garm_mesh.visual.material = material
 
-    pyrender_garm_mesh = pyrender.Mesh.from_trimesh(garm_mesh, smooth=True) 
-    
+    pyrender_garm_mesh = pyrender.Mesh.from_trimesh(garm_mesh, smooth=True)
+
     return pyrender_garm_mesh, pyrender_body_mesh
+
 
 def render_images(
     draped_garment_mesh,
@@ -207,10 +222,10 @@ def render_images(
     render_config: RenderConfig,
 ):
     """Render images for all specified sides.
-    
+
     Parameters
     ----------
-    paths : PathCofig
+    paths : PathConfig
         Path configuration object
     body_v : np.ndarray
         Body mesh vertices
@@ -221,13 +236,13 @@ def render_images(
     experiment_tracker : ExperimentTracker, optional
         Optional experiment tracker for logging rendered images to MLflow
     """
-    pyrender_garm_mesh, pyrender_body_mesh = load_meshes(draped_garment_mesh, body_v, body_f)
+    pyrender_garm_mesh, pyrender_body_mesh = load_meshes(
+        draped_garment_mesh, body_v, body_f
+    )
 
     image_dict = {}
     for side in render_config.sides:
         image = render(pyrender_garm_mesh, pyrender_body_mesh, side, render_config)
         image_dict[side] = image
-    
+
     return image_dict
-
-
