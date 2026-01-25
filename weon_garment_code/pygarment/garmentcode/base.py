@@ -4,6 +4,7 @@ import numpy as np
 
 from weon_garment_code.garment_programs.garment_enums import PanelAlignment
 from weon_garment_code.pygarment.garmentcode.connector import Stitches
+from weon_garment_code.pygarment.garmentcode.interface import Interface
 
 
 class BaseComponent(ABC):
@@ -13,16 +14,21 @@ class BaseComponent(ABC):
     operations
     """
 
+    name: str
+    interfaces: dict[str, Interface]
+    stitching_rules: Stitches
+    verbose: bool
+
     def __init__(self, name, verbose=False) -> None:
         self.name = name
         self.verbose = verbose
 
         # List or dictionary of the interfaces of this components
         # available for connectivity with other components
-        self.interfaces = {}
+        self.interfaces: dict[str, Interface] = {}
 
         # Rules for connecting subcomponents
-        self.stitching_rules = Stitches()
+        self.stitching_rules: Stitches = Stitches()
 
     # Info
     def pivot_3D(self):

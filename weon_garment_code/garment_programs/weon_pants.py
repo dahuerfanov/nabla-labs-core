@@ -1,6 +1,8 @@
+import copy
 from collections.abc import Callable
 
 import numpy as np
+
 import weon_garment_code.pygarment.garmentcode as pyg
 from weon_garment_code.config import AttachmentConstraint
 from weon_garment_code.garment_programs.base_classes import BaseBottoms
@@ -9,13 +11,21 @@ from weon_garment_code.garment_programs.garment_enums import (
     InterfaceName,
     PanelAlignment,
 )
-from weon_garment_code.garment_programs.garment_program_utils import (
-    AttachmentHandler,
-    link_symmetric_components,
-)
+from weon_garment_code.garment_programs.garment_program_utils import AttachmentHandler
 from weon_garment_code.garment_programs.weon_bands import CuffBand
 from weon_garment_code.pattern_definitions.body_definition import BodyDefinition
 from weon_garment_code.pattern_definitions.pants_design import PantsDesign
+from weon_garment_code.pygarment.meshgen.arap.arap_types import (
+    GarmentRing,
+    RingConnection,
+    RingConnector,
+)
+from weon_garment_code.pygarment.meshgen.arap.core_types import (
+    GarmentCategory,
+    GarmentMetadata,
+    GarmentRingType,
+    PanelPosition,
+)
 from weon_garment_code.pygarment.meshgen.box_mesh_gen.box_mesh import BoxMesh
 from weon_garment_code.pygarment.meshgen.box_mesh_gen.stitch_types import (
     EdgeLabel as BoxEdgeLabel,
@@ -125,12 +135,18 @@ class PantPanel(pyg.Panel):
 
         super().__init__(name)
 
-        dart_depth = design.length_waist_to_hip * hipline_ext * self.DART_DEPTH_MULTIPLIER
+        dart_depth = (
+            design.length_waist_to_hip * hipline_ext * self.DART_DEPTH_MULTIPLIER
+        )
         dart_width = (hips - waist) / 2
 
         # --- Edges definition ---
         # Right
-        total_length = design.length_thigh_to_knee + design.length_knee_to_calf + design.length_calf_to_ankle
+        total_length = (
+            design.length_thigh_to_knee
+            + design.length_knee_to_calf
+            + design.length_calf_to_ankle
+        )
         right_5 = pyg.CurveEdgeFactory.curve_from_tangents(
             start=[-hips, hips_crotch_diff + total_length],
             end=[-waist, mid_rise + total_length],
@@ -145,7 +161,10 @@ class PantPanel(pyg.Panel):
             target_tan0=np.array([0, 1]),
         )
 
-        x_grainline = ext_point_thigh[0] + (design.width_thigh + crotch_extension) * self.GRAINLINE_OFFSET_RATIO
+        x_grainline = (
+            ext_point_thigh[0]
+            + (design.width_thigh + crotch_extension) * self.GRAINLINE_OFFSET_RATIO
+        )
 
         right_3 = pyg.CurveEdgeFactory.interpolate_with_tangents(
             start=[
@@ -252,14 +271,20 @@ class PantPanel(pyg.Panel):
 
         # Default placement
         self.set_pivot(crotch_bottom.end)
-        rightmost_thigh_alignment = left_top.end[0]
+        rightmost_thigh_alignment = crotch_bottom.end[0]
         self.translation = translation + [-rightmost_thigh_alignment, 0, 0]
 
         # Out interfaces (easier to define before adding a dart)
         self.interfaces = {
-            InterfaceName.OUTSIDE: pyg.Interface(self, pyg.EdgeSequence(right_1, right_2, right_3, right_4, right_5)),
-            InterfaceName.CROTCH: pyg.Interface(self, pyg.EdgeSequence(crotch_top, crotch_bottom)),
-            InterfaceName.INSIDE: pyg.Interface(self, pyg.EdgeSequence(left_top, left_middle, left_bottom)),
+            InterfaceName.OUTSIDE: pyg.Interface(
+                self, pyg.EdgeSequence(right_1, right_2, right_3, right_4, right_5)
+            ),
+            InterfaceName.CROTCH: pyg.Interface(
+                self, pyg.EdgeSequence(crotch_top, crotch_bottom)
+            ),
+            InterfaceName.INSIDE: pyg.Interface(
+                self, pyg.EdgeSequence(left_top, left_middle, left_bottom)
+            ),
             InterfaceName.BOTTOM: pyg.Interface(self, bottom),
         }
 
@@ -275,15 +300,19 @@ class PantPanel(pyg.Panel):
             )
             self.interfaces[InterfaceName.TOP] = pyg.Interface(
                 self,
-                int_edges,
-                ruffle=waist / match_top_int_to if match_top_int_to is not None else 1.0,
+                top_edges,
+                ruffle=waist / match_top_int_to
+                if match_top_int_to is not None
+                else 1.0,
             )
             self.edges.substitute(top, top_edges)
         else:
             self.interfaces[InterfaceName.TOP] = pyg.Interface(
                 self,
                 top,
-                ruffle=waist / match_top_int_to if match_top_int_to is not None else 1.0,
+                ruffle=waist / match_top_int_to
+                if match_top_int_to is not None
+                else 1.0,
             )
 
     def add_darts(
@@ -326,14 +355,23 @@ class PantPanel(pyg.Panel):
         """
 
         if double_dart:
-            dist = dart_position * self.DART_POSITION_MULTIPLIER  # Dist between darts -> dist between centers
+            dist = (
+                dart_position * self.DART_POSITION_MULTIPLIER
+            )  # Dist between darts -> dist between centers
             offsets_mid = [
-                -dart_position + dist / 2 + dart_width / 2 + dart_width * self.DART_OFFSET_MULTIPLIER_QUARTER,
-                -dart_position - dist / 2 - dart_width * self.DART_OFFSET_MULTIPLIER_QUARTER,
+                -dart_position
+                + dist / 2
+                + dart_width / 2
+                + dart_width * self.DART_OFFSET_MULTIPLIER_QUARTER,
+                -dart_position
+                - dist / 2
+                - dart_width * self.DART_OFFSET_MULTIPLIER_QUARTER,
             ]
 
             darts = [
-                pyg.EdgeSeqFactory.dart_shape(dart_width / 2, dart_depth * self.SMALL_DART_DEPTH_RATIO),  # smaller
+                pyg.EdgeSeqFactory.dart_shape(
+                    dart_width / 2, dart_depth * self.SMALL_DART_DEPTH_RATIO
+                ),  # smaller
                 pyg.EdgeSeqFactory.dart_shape(dart_width / 2, dart_depth),
             ]
         else:
@@ -392,6 +430,7 @@ class PantsHalf(BaseBottoms):
     front: PantPanel
     back: PantPanel
     pants_design: PantsDesign
+    cuff: CuffBand | None = None
 
     def __init__(
         self,
@@ -423,6 +462,7 @@ class PantsHalf(BaseBottoms):
 
         # Create PantsDesign from the design dict and store it
         self.pants_design = design
+        self.cuff: CuffBand | None = None
 
         rise_middle = (self.pants_design.back_rise + self.pants_design.front_rise) / 2
         hips_crotch_diff = rise_middle - self.pants_design.length_waist_to_hip
@@ -443,7 +483,10 @@ class PantsHalf(BaseBottoms):
         )
 
         if self.pants_design.width_gusset_crotch_back is None:
-            crotch_extension_back = self.pants_design.width_gusset_crotch + self.BACK_CROTCH_EXTENSION_OFFSET
+            crotch_extension_back = (
+                self.pants_design.width_gusset_crotch
+                + self.BACK_CROTCH_EXTENSION_OFFSET
+            )
         else:
             crotch_extension_back = self.pants_design.width_gusset_crotch_back
 
@@ -460,7 +503,6 @@ class PantsHalf(BaseBottoms):
             hipline_ext=self.BACK_HIPLINE_EXTENSION,
             dart_position=self.pants_design.waist / 4,
             translation=np.array([0, 0, self.DEFAULT_TRANSLATION_Z_BACK]),
-            match_top_int_to=self.pants_design.waist / 2,
             double_dart=False,
         )
 
@@ -490,7 +532,9 @@ class PantsHalf(BaseBottoms):
                 gap=5,
                 alignment=PanelAlignment.CENTER,
             )
-            self.stitching_rules.append((pant_bottom, self.cuff.interfaces[InterfaceName.TOP]))
+            self.stitching_rules.append(
+                (pant_bottom, self.cuff.interfaces[InterfaceName.TOP])
+            )
 
         self.interfaces = {
             InterfaceName.CROTCH_F: self.front.interfaces[InterfaceName.CROTCH],
@@ -560,20 +604,20 @@ class Pants(BaseBottoms):
         super().__init__()
 
         self.right = PantsHalf("r", design)
+        # Mirroring creates the left half.
         self.left = PantsHalf("l", design).mirror()
 
-        link_symmetric_components(self.left, self.right, "l", "r")
-        link_symmetric_components(self.right, self.left, "r", "l")
-
-        self.stitching_rules = pyg.Stitches(
+        self.stitching_rules.append(
             (
                 self.right.interfaces[InterfaceName.CROTCH_F],
-                self.left.interfaces[InterfaceName.CROTCH_F],
-            ),
+                self.left.interfaces[InterfaceName.CROTCH_F].clone(),
+            )
+        )
+        self.stitching_rules.append(
             (
                 self.right.interfaces[InterfaceName.CROTCH_B],
                 self.left.interfaces[InterfaceName.CROTCH_B],
-            ),
+            )
         )
 
         self.interfaces = {
@@ -587,17 +631,24 @@ class Pants(BaseBottoms):
             ),
             # Some are reversed for correct connection
             InterfaceName.TOP: pyg.Interface.from_multiple(  # around the body starting from front right
-                self.right.interfaces[InterfaceName.TOP_F].flip_edges(),
-                self.left.interfaces[InterfaceName.TOP_F].reverse(with_edge_dir_reverse=True),
-                self.left.interfaces[InterfaceName.TOP_B].flip_edges(),
-                self.right.interfaces[InterfaceName.TOP_B].reverse(
-                    with_edge_dir_reverse=True
-                ),  # Flips the edges and restores the direction
+                self.right.interfaces[InterfaceName.TOP_F],
+                self.left.interfaces[InterfaceName.TOP_F]
+                .clone()
+                .reverse(with_edge_dir_reverse=False),
+                self.left.interfaces[InterfaceName.TOP_B],
+                self.right.interfaces[InterfaceName.TOP_B]
+                .clone()
+                .reverse(with_edge_dir_reverse=False),
             ),
         }
 
         # Add lower_interface label for attachment constraints
-        self.interfaces[InterfaceName.TOP].edges.propagate_label(EdgeLabel.LOWER_INTERFACE)
+        self.interfaces[InterfaceName.TOP].edges.propagate_label(
+            EdgeLabel.LOWER_INTERFACE
+        )
+
+        # Propagate ring labels for deterministic ARAP detection
+        self._propagate_ring_labels()
 
     def length(self) -> float:
         """Get the length of the pants garment.
@@ -672,7 +723,11 @@ class Pants(BaseBottoms):
         Callable[[BoxMesh], None]
             The vertex processor callback function.
         """
-        return lambda box_mesh: AttachmentHandler.process_attachment_constraints_generic(Pants, box_mesh)
+        return (
+            lambda box_mesh: AttachmentHandler.process_attachment_constraints_generic(
+                Pants, box_mesh
+            )
+        )
 
     def apply_body_alignment(self, body: BodyDefinition) -> None:
         """Apply body alignment to position the pants correctly.
@@ -693,3 +748,296 @@ class Pants(BaseBottoms):
         body_waist_level = body.computed_waist_level
 
         self.translate_by([0, body_waist_level - body_crotch_height, 0])
+
+    def _propagate_ring_labels(self) -> None:
+        """Propagate ring labels for deterministic ARAP detection.
+
+        Labels propagated:
+        - HEM: Waist/top edges (for pants, waist is the "hem" anchor for ARAP)
+        - LEFT_ANKLE: Left leg bottom edges
+        - RIGHT_ANKLE: Right leg bottom edges
+        """
+        # WAIST/HEM label on waist (TOP interface)
+        # We rely on LOWER_INTERFACE being mapped to WAIST in core_types.py
+        # This preserves the LOWER_INTERFACE label for constraints
+        pass
+
+        # ANKLE labels on bottom edges
+        # Check if cuffs are present - if so, propagate to cuff bottom interface
+        if self.right.cuff:
+            self.right.cuff.interfaces[InterfaceName.BOTTOM].edges.propagate_label(
+                EdgeLabel.RIGHT_ANKLE
+            )
+        else:
+            self.right.front.interfaces[InterfaceName.BOTTOM].edges.propagate_label(
+                EdgeLabel.RIGHT_ANKLE
+            )
+            self.right.back.interfaces[InterfaceName.BOTTOM].edges.propagate_label(
+                EdgeLabel.RIGHT_ANKLE
+            )
+
+        if self.left.cuff:
+            self.left.cuff.interfaces[InterfaceName.BOTTOM].edges.propagate_label(
+                EdgeLabel.LEFT_ANKLE
+            )
+        else:
+            self.left.front.interfaces[InterfaceName.BOTTOM].edges.propagate_label(
+                EdgeLabel.LEFT_ANKLE
+            )
+            self.left.back.interfaces[InterfaceName.BOTTOM].edges.propagate_label(
+                EdgeLabel.LEFT_ANKLE
+            )
+
+    def get_garment_metadata(self) -> GarmentMetadata:
+        """Get deterministic garment metadata for ARAP processing.
+
+        Returns
+        -------
+        GarmentMetadata
+            Metadata containing category, panel positions, ring connectors,
+            and seam paths computed at garment creation time.
+        """
+        # Panel positions for pants (front/back for each leg)
+        panel_positions: dict[str, PanelPosition] = {
+            "pant_f_r": PanelPosition.FRONT,
+            "pant_b_r": PanelPosition.BACK,
+            "pant_f_l": PanelPosition.FRONT,
+            "pant_b_l": PanelPosition.BACK,
+        }
+
+        # Add cuff panels if present
+        if self.right.cuff:
+            panel_positions["pant_r_cuff_f"] = PanelPosition.FRONT
+            panel_positions["pant_r_cuff_b"] = PanelPosition.BACK
+
+        if self.left.cuff:
+            panel_positions["pant_l_cuff_f"] = PanelPosition.FRONT
+            panel_positions["pant_l_cuff_b"] = PanelPosition.BACK
+
+        return GarmentMetadata(
+            category=GarmentCategory.PANTS,
+            panel_positions=panel_positions,
+            ring_connectors={},  # Populated during BoxMesh generation
+            seam_paths=[],  # Populated during BoxMesh generation
+        )
+
+    # =========================================================================
+    # ARAPInitializable Protocol Implementation
+    # =========================================================================
+
+    def get_garment_category(self) -> GarmentCategory:
+        """Return the garment category.
+
+        Returns
+        -------
+        GarmentCategory
+            PANTS category.
+        """
+        return GarmentCategory.PANTS
+
+    def get_rings(self) -> list[GarmentRing]:
+        """Return all rings (closed boundary curves) for pants.
+
+        Pants rings: HEM (waist), LEFT_ANKLE, RIGHT_ANKLE.
+        For pants with cuffs, ankle rings come from cuff BOTTOM interfaces.
+        Dart edges are NOT included in rings.
+
+        Returns
+        -------
+        list[GarmentRing]
+            All rings with their edges and connectors.
+        """
+        rings: list[GarmentRing] = []
+
+        # HEM ring (waist) - from TOP interfaces combined
+        hem_edges = self._collect_waist_edges()
+        if hem_edges and len(hem_edges) > 0:
+            conn1 = RingConnector(
+                edge=hem_edges[0],
+                parameter=0.0,
+                ring_type=GarmentRingType.HEM,
+            )
+            conn2 = RingConnector(
+                edge=hem_edges[-1],
+                parameter=1.0,
+                ring_type=GarmentRingType.HEM,
+            )
+            rings.append(
+                GarmentRing(
+                    ring_type=GarmentRingType.HEM,
+                    edges=hem_edges,
+                    connectors=(conn1, conn2),
+                )
+            )
+
+        # ANKLE rings
+        for side, ankle_type in [
+            ("right", GarmentRingType.RIGHT_ANKLE),
+            ("left", GarmentRingType.LEFT_ANKLE),
+        ]:
+            half: PantsHalf = getattr(self, side)
+            ankle_edges = self._collect_ankle_edges(half)
+            if ankle_edges and len(ankle_edges) > 0:
+                conn1 = RingConnector(
+                    edge=ankle_edges[0],
+                    parameter=0.0,
+                    ring_type=ankle_type,
+                )
+                conn2 = RingConnector(
+                    edge=ankle_edges[-1],
+                    parameter=1.0,
+                    ring_type=ankle_type,
+                )
+                rings.append(
+                    GarmentRing(
+                        ring_type=ankle_type,
+                        edges=ankle_edges,
+                        connectors=(conn1, conn2),
+                    )
+                )
+
+        return rings
+
+    def _collect_waist_edges(self) -> pyg.EdgeSequence | None:
+        """Collect waist ring edges from top interface."""
+        if InterfaceName.TOP in self.interfaces:
+            return self.interfaces[InterfaceName.TOP].edges
+        return None
+
+    def _collect_ankle_edges(self, half: PantsHalf) -> pyg.EdgeSequence | None:
+        """Collect ankle ring edges from leg bottom or cuff."""
+        if half.cuff:
+            # Has cuff - use cuff BOTTOM interface
+            if InterfaceName.BOTTOM in half.cuff.interfaces:
+                return half.cuff.interfaces[InterfaceName.BOTTOM].edges
+        else:
+            # No cuff - use combined front/back BOTTOM
+            ankle_edges = []
+            if InterfaceName.BOTTOM in half.front.interfaces:
+                ankle_edges.extend(half.front.interfaces[InterfaceName.BOTTOM].edges)
+            if InterfaceName.BOTTOM in half.back.interfaces:
+                ankle_edges.extend(half.back.interfaces[InterfaceName.BOTTOM].edges)
+            if ankle_edges:
+                return pyg.EdgeSequence(*ankle_edges)
+        return None
+
+    def _collect_outseam_edges(self, side: str) -> pyg.EdgeSequence | None:
+        """Collect edges for the outseam (Waist -> Ankle).
+
+        Ensures strict Descending Y ordering (Top -> Bottom).
+        """
+
+        def clone_edge(e):
+            return copy.deepcopy(e)
+
+        def reverse_edge(e):
+            ne = copy.deepcopy(e)
+            ne.reverse()
+            return ne
+
+        def _ensure_descending_y(interface):
+            corrected_edges = []
+            if not interface or not interface.edges:
+                return None
+
+            for e in interface.edges:
+                # We want Start Y > End Y (Descending)
+                if e.start[1] < e.end[1]:
+                    corrected_edges.append(reverse_edge(e))
+                else:
+                    corrected_edges.append(clone_edge(e))
+            # Sort Descending by Start Y (Highest first)
+            corrected_edges.sort(key=lambda x: x.start[1], reverse=True)
+            return pyg.EdgeSequence(*corrected_edges)
+
+        half: PantsHalf = getattr(self, side)
+        # Use Front panel's OUTSIDE interface as the canonical path
+        if InterfaceName.OUTSIDE in half.front.interfaces:
+            seq = _ensure_descending_y(half.front.interfaces[InterfaceName.OUTSIDE])
+            if seq:
+                edges = list(seq.edges)
+                for e in edges:
+                    e.panel = half.front
+
+                # If Cuff exists, find the matching side seam
+                if half.cuff:
+                    leg_end = edges[-1].end
+                    # Check Cuff Front RIGHT and LEFT edges
+                    candidates = []
+                    candidates.append(
+                        ("RIGHT", half.cuff.front.interfaces.get(InterfaceName.RIGHT))
+                    )
+                    candidates.append(
+                        ("LEFT", half.cuff.front.interfaces.get(InterfaceName.LEFT))
+                    )
+
+                    best_seq = None
+                    min_dist = float("inf")
+
+                    for _, cand_int in candidates:
+                        if not cand_int:
+                            continue
+                        cand_seq = _ensure_descending_y(cand_int)
+                        if not cand_seq:
+                            continue
+
+                        # Distance from Leg End to Cuff Start
+                        dist = np.linalg.norm(
+                            np.array(leg_end) - np.array(cand_seq.edges[0].start)
+                        ).item()
+                        if dist < min_dist:
+                            min_dist = dist
+                            best_seq = cand_seq
+
+                    # If valid match found (tolerance increased for Local Coords mismatch), append
+                    if best_seq and min_dist < 300.0:
+                        for e in best_seq.edges:
+                            e.panel = half.cuff.front
+                        edges.extend(best_seq.edges)
+
+                return pyg.EdgeSequence(*edges)
+        return None
+
+    def get_ring_connections(self) -> list[RingConnection]:
+        """Return all seam paths between rings.
+
+        Pants connections: HEM→LEFT_ANKLE, HEM→RIGHT_ANKLE (side seams).
+        NOTE: Left and Right are swapped to correct for body/garment orientation mismatch.
+        """
+        connections: list[RingConnection] = []
+
+        # 1. Right Outseam (HEM -> RIGHT_ANKLE)
+        right_outseam = self._collect_outseam_edges("right")
+        if right_outseam:
+            connections.append(
+                RingConnection(
+                    ring_1=GarmentRingType.HEM,
+                    ring_2=GarmentRingType.RIGHT_ANKLE,
+                    connector_1=RingConnector(
+                        right_outseam[0], 0.0, GarmentRingType.HEM
+                    ),
+                    connector_2=RingConnector(
+                        right_outseam[-1], 1.0, GarmentRingType.RIGHT_ANKLE
+                    ),
+                    path_edges=right_outseam,
+                )
+            )
+
+        # 2. Left Outseam (HEM -> LEFT_ANKLE)
+        left_outseam = self._collect_outseam_edges("left")
+        if left_outseam:
+            connections.append(
+                RingConnection(
+                    ring_1=GarmentRingType.HEM,
+                    ring_2=GarmentRingType.LEFT_ANKLE,
+                    connector_1=RingConnector(
+                        left_outseam[0], 0.0, GarmentRingType.HEM
+                    ),
+                    connector_2=RingConnector(
+                        left_outseam[-1], 1.0, GarmentRingType.LEFT_ANKLE
+                    ),
+                    path_edges=left_outseam,
+                )
+            )
+
+        return connections

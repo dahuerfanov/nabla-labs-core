@@ -2,10 +2,12 @@ from collections.abc import Callable
 from copy import deepcopy
 
 import numpy as np
+from loguru import logger
 
 import weon_garment_code.pygarment.garmentcode as pyg
 from weon_garment_code.garment_programs import weon_bands
 from weon_garment_code.garment_programs.garment_enums import InterfaceName, PanelLabel
+from weon_garment_code.pattern_definitions.pants_design import CuffDesign
 from weon_garment_code.pattern_definitions.sleeve_design import SleeveDesign
 from weon_garment_code.pattern_definitions.torso_design import TorsoDesign
 
@@ -304,6 +306,7 @@ class Sleeve(pyg.Component):
     SLEEVE_Z_TRANSLATION: int = (
         15  # Translation in Z to separate front and back sleeves
     )
+    ADDITIONAL_CUFF_SLEEVE_GAP: float = 6.0
 
     # Class attributes
     sleeve_design: SleeveDesign
@@ -351,23 +354,31 @@ class Sleeve(pyg.Component):
         self.sleeve_design = sleeve_design
 
         # Get shirt design for translation calculation
-        x_sleeve_translation = -(
-            (shirt_design.neck_to_shoulder_distance**2 - shirt_design.shoulder_slant**2)
-            ** 0.5
+        x_sleeve_translation = (
+            max(shirt_design.back_width, shirt_design.width_chest) / 2
         )
-        x_sleeve_translation -= shirt_design.neck_width / 2
         armhole_width = shirt_design.scye_depth - shirt_design.shoulder_slant
 
-        dist = (
+        dist_sqr = max(
             (front_hole_edge.start[0] - back_hole_edge.end[0]) ** 2
-            + (front_hole_edge.start[1] - back_hole_edge.end[1]) ** 2
-        ) ** 0.5
-        dist_y = abs(front_hole_edge.start[1] - back_hole_edge.end[1])
+            + (front_hole_edge.start[1] - back_hole_edge.end[1]) ** 2,
+            (front_hole_edge.start[0] - back_hole_edge.start[0]) ** 2
+            + (front_hole_edge.start[1] - back_hole_edge.start[1]) ** 2,
+        )
+        dist = dist_sqr**0.5
+        dist_y = max(
+            abs(front_hole_edge.start[1] - back_hole_edge.end[1]),
+            abs(front_hole_edge.start[1] - back_hole_edge.start[1]),
+        )
         rest_angle = (
             np.pi / 2
             - np.arcsin(self.sleeve_design.bicep_width / dist)
             - np.arccos(dist_y / dist)
         )
+
+        # Override with explicit sleeve angle from design
+        if hasattr(self.sleeve_design, "sleeve_angle"):
+            rest_angle = np.deg2rad(self.sleeve_design.sleeve_angle)
 
         smoothing_coeff = self.sleeve_design.smoothing_coeff
 
@@ -420,23 +431,20 @@ class Sleeve(pyg.Component):
                 verbose=self.verbose,
             )
 
-        # --- Eval length adjustment for cuffs (if any) ----
-        cuff_len_adj = self._cuff_len_adj()
-
         # ----- Get sleeve panels -------
         self.f_sleeve = SleevePanel(
             f"{tag}_sleeve_f",
             sleeve_design,
             front_opening,
             armhole_width=armhole_width,
-            length_shift=-cuff_len_adj,
+            length_shift=0,
         ).translate_by([x_sleeve_translation, 0, self.SLEEVE_Z_TRANSLATION])
         self.b_sleeve = SleevePanel(
             f"{tag}_sleeve_b",
             sleeve_design,
             back_opening,
             armhole_width=armhole_width,
-            length_shift=-cuff_len_adj,
+            length_shift=0,
         ).translate_by([x_sleeve_translation, 0, -self.SLEEVE_Z_TRANSLATION])
 
         # Connect panels
@@ -469,8 +477,68 @@ class Sleeve(pyg.Component):
             )
 
         # Cuff
+        self.cuff = None
         if self.sleeve_design.cuff.type and self.sleeve_design.cuff.cuff_length > 0:
-            raise NotImplementedError("Cuffs are not implemented yet")
+            # Debug: log dimensions
+
+            sleeve_out_length = self.interfaces[InterfaceName.OUT].edges.length()
+            cuff_width = self.sleeve_design.cuff.cuff_width
+            cuff_length = self.sleeve_design.cuff.cuff_length
+            logger.debug(
+                f"Cuff dimensions - sleeve_out: {sleeve_out_length:.2f}, "
+                f"cuff_width: {cuff_width:.2f}, cuff_length: {cuff_length:.2f}"
+            )
+
+            # Create cuff design with correct width from sleeve end
+            effective_cuff_width = self.sleeve_design.cuff.cuff_width * 2
+            cuff_design = CuffDesign(
+                {
+                    "type": {"v": self.sleeve_design.cuff.type},
+                    "cuff_len": {"v": self.sleeve_design.cuff.cuff_length},
+                    "cuff_width": {"v": effective_cuff_width},
+                }
+            )
+            self.cuff = weon_bands.CuffBand(tag, cuff_design, vertical=True)
+
+            # Log cuff interface length
+            cuff_top_length = self.cuff.interfaces[InterfaceName.TOP].edges.length()
+            logger.debug(f"Cuff TOP interface length: {cuff_top_length:.2f}")
+
+            # Position cuff below sleeve panels
+            self.cuff.place_by_interface(
+                self.cuff.interfaces[InterfaceName.TOP],
+                self.interfaces[InterfaceName.OUT],
+                gap=3,
+            )
+
+            # Fix overlap: Translate cuff along the sleeve length direction (outwards)
+            self.cuff.translate_by(
+                [-(effective_cuff_width + self.ADDITIONAL_CUFF_SLEEVE_GAP), 0, 0]
+            )
+
+            # Stitch cuff panels to corresponding sleeve panels
+            # Front sleeve panel -> Front cuff panel (TOP edge = half circumference)
+            self.stitching_rules.append(
+                (
+                    self.f_sleeve.interfaces[InterfaceName.OUT],  # type: ignore
+                    self.cuff.interfaces[InterfaceName.TOP_FRONT],
+                )
+            )
+            # Back sleeve panel -> Back cuff panel
+            self.stitching_rules.append(
+                (
+                    self.b_sleeve.interfaces[InterfaceName.OUT],  # type: ignore
+                    self.cuff.interfaces[InterfaceName.TOP_BACK],
+                )
+            )
+
+            # Register cuff as sub-component
+            self.subs.append(self.cuff)
+
+            # Update OUT interface to point to the cuff bottom (the new end of sleeve)
+            self.interfaces[InterfaceName.OUT] = self.cuff.interfaces[
+                InterfaceName.BOTTOM
+            ]
 
         # Set label
         self.set_panel_label(PanelLabel.ARM)
@@ -481,12 +549,13 @@ class Sleeve(pyg.Component):
         Returns
         -------
         float
-            Length adjustment for the cuff, or 0 if no cuff.
+            Length adjustment for the cuff (cuff height), or 0 if no cuff.
         """
         if not self.sleeve_design.cuff.type or self.sleeve_design.cuff.cuff_length == 0:
             return 0
 
-        raise NotImplementedError("Cuffs are not implemented yet")
+        # Return the cuff height (width in new convention) for length adjustment
+        return self.sleeve_design.cuff.cuff_width
 
     def length(self) -> float:
         """Return the length of the sleeve including cuff (if any).

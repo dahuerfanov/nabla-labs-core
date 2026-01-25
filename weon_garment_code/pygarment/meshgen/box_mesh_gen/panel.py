@@ -1,10 +1,12 @@
 """Panel representation for box mesh generation."""
 
 from pathlib import Path
+from typing import List, Tuple
 
 import igl
 import matplotlib.pyplot as plt
 import numpy as np
+
 import weon_garment_code.pygarment.meshgen.triangulation_utils as tri_utils
 from weon_garment_code.pygarment.meshgen.box_mesh_gen.edge import Edge
 from weon_garment_code.pygarment.meshgen.box_mesh_gen.errors import (
@@ -39,11 +41,10 @@ class Panel:
         self.panel_name = panel_name
         self.translation = panel_spec.translation
         self.rotation = panel_spec.rotation
-        self.symmetry_partner = getattr(panel_spec, "symmetry_partner", None)
         self.corner_vertices = np.asarray(panel_spec.vertices)
         self.panel_vertices: list[np.ndarray] = []
         self.panel_faces: list[list[int]] = []
-        self.edges: list[Edge] = []
+        self.edges: List[Edge] = []
         self.n_stitches = 0  # needed later to decide whether vertex is stitch vertex or not
         self.glob_offset = -1
 
@@ -76,7 +77,7 @@ class Panel:
             verts.pop(-1)
         return verts
 
-    def _bbox(self, verts_2d: list) -> tuple[np.ndarray, np.ndarray]:
+    def _bbox(self, verts_2d: list) -> Tuple[np.ndarray, np.ndarray]:
         """
         Evaluate the 2D bounding box of the current panel and return the panel vertices which are
         located on the bounding box (b_points) as well as the mean point of b_points in 3D.
@@ -234,7 +235,12 @@ class Panel:
             return np.array([])
         rot_matrix = rotation_tools.euler_xyz_to_R(self.rotation)
         r_t_vertices = np.vstack(
-            tuple([BasicPattern._point_in_3D(v, rot_matrix, self.translation) for v in np.array(vertices)])
+            tuple(
+                [
+                    BasicPattern._point_in_3D(v, rot_matrix, self.translation)
+                    for v in np.array(vertices)
+                ]
+            )
         )
         return r_t_vertices
 
@@ -300,7 +306,7 @@ class Panel:
 
         edge.set_vertex_range(start_index, begin_in, end_in, end_index)
 
-    def sort_edges_by_stitchid(self) -> tuple[int, list]:
+    def sort_edges_by_stitchid(self) -> Tuple[int, list]:
         """
         Sort the panel's edges by their edge_id (stitch edges first) and
         return them as well as the number of edges that are part of a stitch.
@@ -408,3 +414,4 @@ class Panel:
         f = np.array(self.panel_faces)
 
         igl.write_triangle_mesh(str(filepath), v, f)
+

@@ -1,13 +1,16 @@
 """Interface name definitions for garment components.
 
-This module defines a StrEnum for all interface names used throughout
-the garment programs to ensure type safety and maintainability.
+This module defines StrEnums for all interface names, edge labels, and other
+identifiers used throughout the garment programs to ensure type safety.
 """
 
-from enum import StrEnum
+from enum import Enum
+
+# Re-export RingLabel from core_types for convenience
+from weon_garment_code.pygarment.meshgen.arap.core_types import RingLabel
 
 
-class InterfaceName(StrEnum):
+class InterfaceName(str, Enum):
     """Enumeration of all interface names used in garment components.
 
     This enum provides a centralized definition of all interface names
@@ -40,6 +43,8 @@ class InterfaceName(StrEnum):
     TOP_B = "top_b"
     TOP_FRONT = "top_front"
     TOP_BACK = "top_back"
+    RIGHT_FRONT = "right_front"
+    RIGHT_BACK = "right_back"
     BOTTOM_F = "bottom_f"
     BOTTOM_B = "bottom_b"
 
@@ -64,11 +69,13 @@ class InterfaceName(StrEnum):
     BACK = "back"
 
 
-class EdgeLabel(StrEnum):
+class EdgeLabel(str, Enum):
     """Enumeration of all edge labels used in garment components.
 
     This enum provides a centralized definition of all edge labels
     to avoid string literal errors and improve code maintainability.
+
+    For ring detection labels, prefer using RingLabel from core_types.
     """
 
     # Interface attachment labels
@@ -82,32 +89,48 @@ class EdgeLabel(StrEnum):
     ARMHOLE = "armhole"
     COLLAR = "collar"
 
+    # Ring labels (duplicated for backward compatibility)
+    # New code should use RingLabel from core_types
+    HEM = "hem"
+    WAIST = "waist"
+    LEFT_CUFF = "left_cuff"
+    RIGHT_CUFF = "right_cuff"
+    LEFT_ANKLE = "left_ankle"
+    RIGHT_ANKLE = "right_ankle"
+    SKIRT_HEM = "skirt_hem"
 
-class PanelLabel(StrEnum):
-    """Enumeration of all panel labels used in garment components.
 
-    This enum provides a centralized definition of all panel labels
-    to avoid string literal errors and improve code maintainability.
-    """
+class PanelLabel(str, Enum):
+    """Enumeration of all panel labels used in garment components."""
 
     BODY = "body"
     LEG = "leg"
     ARM = "arm"
 
 
-class PanelAlignment(StrEnum):
-    """Enumeration for panel alignment"""
+class PanelAlignment(str, Enum):
+    """Enumeration for panel alignment."""
 
-    CENTER = "center"  # center of the interface to center of the interface
-    TOP = "top"  # top on Y axis
-    BOTTOM = "bottom"  # bottom on Y axis
-    LEFT = "left"  # left on X axis
-    RIGHT = "right"  # right on X axis
+    CENTER = "center"
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
 
 
-class SleeveArmholeShape(StrEnum):
-    """Enumeration of sleeve armhole shapes"""
+class SleeveArmholeShape(str, Enum):
+    """Enumeration of sleeve armhole shapes."""
 
     ARMHOLE_CURVE = "ArmholeCurve"
     ARMHOLE_SQUARE = "ArmholeSquare"
     ARMHOLE_ANGLE = "ArmholeAngle"
+
+
+__all__ = [
+    "InterfaceName",
+    "EdgeLabel",
+    "RingLabel",
+    "PanelLabel",
+    "PanelAlignment",
+    "SleeveArmholeShape",
+]

@@ -9,10 +9,22 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import svgpathtools as svgpath
-import weon_garment_code.pygarment.pattern.utils as pat_utils
-import yaml
+import yaml  # type: ignore
 from loguru import logger
+
+import weon_garment_code.pygarment.pattern.utils as pat_utils
+import weon_garment_code.pygarment.pattern.wrappers as wrappers
 from weon_garment_code.config import AttachmentConstraint, PathCofig
+from weon_garment_code.pygarment.meshgen.arap.arap_protocol import ARAPInitializable
+from weon_garment_code.pygarment.meshgen.arap.arap_types import (
+    MeshRingConnection,
+)
+from weon_garment_code.pygarment.meshgen.arap.core_types import (
+    GarmentMetadata,
+    GarmentRingType,
+    RingConnectorPair,
+    SeamPath,
+)
 from weon_garment_code.pygarment.meshgen.box_mesh_gen.edge import Edge
 from weon_garment_code.pygarment.meshgen.box_mesh_gen.errors import (
     DegenerateTrianglesError,
@@ -33,7 +45,6 @@ from weon_garment_code.pygarment.meshgen.render.texture_utils import (
     save_obj,
     texture_mesh_islands,
 )
-from weon_garment_code.pygarment.pattern import wrappers
 
 
 class BoxMesh(wrappers.VisPattern):
@@ -64,11 +75,25 @@ class BoxMesh(wrappers.VisPattern):
     vertex_texture: list[list[float]]
     vertex_labels: dict[str, list[int]]
     attachment_constraints: list[AttachmentConstraint]
+    garment_metadata: GarmentMetadata | None
 
-    def __init__(self, path: str | Path, res: float = 1.0) -> None:
-        super(BoxMesh, self).__init__(path)
-        self.mesh_resolution = res  # Vertices are spread with distance ~mesh_resolution cm
+    def __init__(
+        self,
+        pattern_file: str | Path | dict,
+        garment_metadata: GarmentMetadata | None,
+        res: float = 1.0,
+        program: Any = None,
+    ) -> None:
+        super().__init__(pattern_file)
+        if isinstance(pattern_file, dict):
+            self.pattern = pattern_file
+
+        self.mesh_resolution = (
+            res  # Vertices are spread with distance ~mesh_resolution cm
+        )
         self.loaded = False
+        self.garment_metadata = garment_metadata
+        self.program = program  # Reference to garment program for helper methods
 
         # Convert pattern dict to PatternSpec
         self.pattern_spec = PatternSpec.from_dict(self.pattern)
@@ -85,8 +110,12 @@ class BoxMesh(wrappers.VisPattern):
         self.vertex_normals: list[np.ndarray] = []
         self.faces_with_texture: list[list[int]] = []
         self.vertex_texture: list[list[float]] = []
-        self.vertex_labels: dict[str, list[int]] = {}  # Additional vertex labels coming from panel edges' labels
-        self.attachment_constraints: list[Any] = []  # Attachment constraints stored by callback
+        self.vertex_labels: dict[
+            str, list[int]
+        ] = {}  # Additional vertex labels coming from panel edges' labels
+        self.attachment_constraints: list[
+            Any
+        ] = []  # Attachment constraints stored by callback
 
     @property
     def panel_names(self) -> list[str]:
@@ -109,7 +138,9 @@ class BoxMesh(wrappers.VisPattern):
         Load all relevant functions and print their time consumptions.
         """
         if self.is_self_intersecting():
-            logger.warning("Provided pattern has self-intersecting panels. Simulation might crash")
+            logger.warning(
+                "Provided pattern has self-intersecting panels. Simulation might crash"
+            )
 
         self.load_panels()
         self.gen_panel_meshes()
@@ -133,7 +164,9 @@ class BoxMesh(wrappers.VisPattern):
         # Load stitching info
         self.read_stitches()
 
-    def _get_stitch_edge_info(self, stitch_spec: StitchSpec, side_id: int) -> tuple[str, int, Edge]:
+    def _get_stitch_edge_info(
+        self, stitch_spec: StitchSpec, side_id: int
+    ) -> tuple[str, int, Edge]:
         """
         Get the edge defined by stitch specification and side ID.
 
@@ -170,7 +203,9 @@ class BoxMesh(wrappers.VisPattern):
         try:
             edge = ret_panel.edges[edge_id]
         except (IndexError, KeyError) as e:
-            logger.error(f"Provided pattern fails for stitch and {[panel_name, edge_id]}")
+            logger.error(
+                f"Provided pattern fails for stitch and {[panel_name, edge_id]}"
+            )
             raise PatternLoadingError(
                 f"{self.__class__.__name__}::{self.name}::ERROR::Provided pattern"
                 f" fails for stitch and {[panel_name, edge_id]}"
@@ -186,8 +221,12 @@ class BoxMesh(wrappers.VisPattern):
         multi_stitches_check: list[tuple[str, int]] = []
         if self.pattern_spec.stitches:
             for stitch_id, stitch_spec in enumerate(self.pattern_spec.stitches):
-                panel_name_0, edge_id0, edge0 = self._get_stitch_edge_info(stitch_spec, 0)
-                panel_name_1, edge_id1, edge1 = self._get_stitch_edge_info(stitch_spec, 1)
+                panel_name_0, edge_id0, edge0 = self._get_stitch_edge_info(
+                    stitch_spec, 0
+                )
+                panel_name_1, edge_id1, edge1 = self._get_stitch_edge_info(
+                    stitch_spec, 1
+                )
 
                 stitch = Seam(
                     panel_name_0,
@@ -226,7 +265,9 @@ class BoxMesh(wrappers.VisPattern):
 
                 # Propagate Edge labeling
                 if edge0.label or edge1.label:
-                    if edge0.label and edge1.label and edge0.label != edge1.label:  # Sanity check
+                    if (
+                        edge0.label and edge1.label and edge0.label != edge1.label
+                    ):  # Sanity check
                         raise ValueError(
                             f"{self.__class__.__name__}::{self.name}::ERROR::Edge labels "
                             f"in stitch do not match: {edge0.label} and {edge1.label}"
@@ -256,7 +297,9 @@ class BoxMesh(wrappers.VisPattern):
         edge_in_vertices = []
         t_vals: list[float] = np.linspace(0, 1, n).tolist()
 
-        if isinstance(edge.curve, svgpath.QuadraticBezier) or isinstance(edge.curve, svgpath.CubicBezier):
+        if isinstance(edge.curve, svgpath.QuadraticBezier) or isinstance(
+            edge.curve, svgpath.CubicBezier
+        ):
             # to achieve equal spread along bezier curve
             curve_lengths = np.linspace(0, 1, n) * edge.curve.length()
             t_vals = [edge.curve.ilength(c_len) for c_len in curve_lengths]
@@ -267,19 +310,25 @@ class BoxMesh(wrappers.VisPattern):
                 p = pat_utils.c_to_np(edge.curve.point(t))
                 edge_in_vertices.append(p)
         elif edge.curve is not None:
-            points = edge.curve.points(ts)  # faster than .point(t) but unavailable for Arc
+            points = edge.curve.points(
+                ts
+            )  # faster than .point(t) but unavailable for Arc
             edge_in_vertices = [pat_utils.c_to_np(p) for p in points]
         else:
             raise ValueError(f"Edge {edge.label} has no curve")
 
         if plot:
             c_type = "circle"
-            if isinstance(edge.curve, svgpath.QuadraticBezier) or isinstance(edge.curve, svgpath.CubicBezier):
+            if isinstance(edge.curve, svgpath.QuadraticBezier) or isinstance(
+                edge.curve, svgpath.CubicBezier
+            ):
                 c_type = "bezier"
             elif isinstance(edge.curve, svgpath.Line):
                 c_type = "linear"
 
-            show_verts = np.array([edge.endpoints[0]] + list(edge_in_vertices) + [edge.endpoints[1]])
+            show_verts = np.array(
+                [edge.endpoints[0]] + list(edge_in_vertices) + [edge.endpoints[1]]
+            )
 
             lis = show_verts.T
             x, y = lis
@@ -291,7 +340,13 @@ class BoxMesh(wrappers.VisPattern):
             plt.title(c_type)
 
             for i in range(len(show_verts)):
-                plt.annotate(str(i), (x[i], y[i]), textcoords="offset points", xytext=(0, 10), ha="center")
+                plt.annotate(
+                    str(i),
+                    (x[i], y[i]),
+                    textcoords="offset points",
+                    xytext=(0, 10),
+                    ha="center",
+                )
 
             plt.show()
 
@@ -300,10 +355,11 @@ class BoxMesh(wrappers.VisPattern):
     def gen_panel_meshes(self) -> None:
         """
         For each Panel:
-            * Pass 1: Setup boundaries (store edge vertices).
-            * Pass 2: Generate mesh (or clone from symmetric partner).
+            * For each edge generate its edge vertices and store them in panel.panel_vertices.
+              Further, store "start", "inside-edge", and "end" indices for each edge vertex in edge.vertex_range
+            * Generate vertices inside the panel and its triangles using CGAL and store them in panel.panel_vertices
+              and panel.panel_triangles, respectively.
         """
-        # Pass 1: Setup boundaries for ALL panels
         for panelname in self.panel_names:
             panel = self.panels[panelname]
 
@@ -324,31 +380,8 @@ class BoxMesh(wrappers.VisPattern):
 
             # Set panel norm
             panel.set_panel_norm()
-
-        # Pass 2: Generate or Clone Meshes
-        for panelname in self.panel_names:
-            panel = self.panels[panelname]
-
-            # If already meshed (e.g. was a partner of a previous panel), skip
-            if len(panel.panel_faces) > 0:
-                continue
-
-            # Check symmetry
-            symmetry_partner_name = panel.symmetry_partner
-            if symmetry_partner_name and symmetry_partner_name in self.panels:
-                partner = self.panels[symmetry_partner_name]
-
-                # If partner has mesh, copy from it
-                if len(partner.panel_faces) > 0:
-                    logger.info(f"Cloning mesh from {symmetry_partner_name} to {panelname} for symmetry")
-                    self._clone_panel_mesh(partner, panel)
-                else:
-                    # Partner not meshed yet, generate current one normally
-                    # (Partner will clone this one when reached)
-                    panel.gen_panel_mesh(self.mesh_resolution)
-            else:
-                # No symmetry, generate normally
-                panel.gen_panel_mesh(self.mesh_resolution)
+            # Generate panel mesh and store them in panel.panel_vertices and panel.panel_faces
+            panel.gen_panel_mesh(self.mesh_resolution)
 
             # Sanity check
             if not panel.is_manifold():
@@ -356,169 +389,6 @@ class BoxMesh(wrappers.VisPattern):
                     f"{self.__class__.__name__}::ERROR::{self.name}::{panel.panel_name}:"
                     ":panel contains degenerate triangles"
                 )
-
-    def _match_edges_geometrically(self, source: Panel, target: Panel) -> tuple[dict[int, int], dict[int, bool]]:
-        """
-        Match edges between symmetric panels using geometry (X-mirror).
-        Returns:
-            edge_map: src_idx -> tgt_idx
-            reverse_map: src_idx -> bool (True if target edge is reversed relative to source)
-        """
-        # Compute centroids of corners
-        src_corners = source.corner_vertices
-        tgt_corners = target.corner_vertices
-        src_mean = np.mean(src_corners, axis=0)
-        tgt_mean = np.mean(tgt_corners, axis=0)
-
-        edge_map = {}
-        reverse_map = {}
-
-        used_targets = set()
-
-        for i, src_edge in enumerate(source.edges):
-            # Get start/end relative to centroid
-            p0 = src_edge.endpoints[0] - src_mean
-            p1 = src_edge.endpoints[1] - src_mean
-
-            # Expected target positions (Mirror X)
-            # Assuming 2D symmetry plane X=0 in local frame relative to centroid
-            t0_exp = np.array([-p0[0], p0[1]])
-            t1_exp = np.array([-p1[0], p1[1]])
-
-            best_j = -1
-            best_dist = float("inf")
-            is_reversed = False
-
-            for j, tgt_edge in enumerate(target.edges):
-                if j in used_targets:
-                    continue
-
-                q0 = tgt_edge.endpoints[0] - tgt_mean
-                q1 = tgt_edge.endpoints[1] - tgt_mean
-
-                # Check Direct: P0->Q0, P1->Q1
-                d_direct = np.linalg.norm(t0_exp - q0) + np.linalg.norm(t1_exp - q1)
-
-                # Check Reversed: P0->Q1, P1->Q0
-                d_reversed = np.linalg.norm(t0_exp - q1) + np.linalg.norm(t1_exp - q0)
-
-                # Check min distance
-                dist = min(d_direct, d_reversed)
-                if dist < best_dist:
-                    best_dist = dist
-                    best_j = j
-                    is_reversed = d_reversed < d_direct
-
-            # Tolerance Check (e.g. 1cm)
-            if best_j != -1:
-                edge_map[i] = best_j
-                reverse_map[i] = is_reversed
-                used_targets.add(best_j)
-            else:
-                logger.warning(f"Could not match edge {i} of {source.panel_name} to {target.panel_name}")
-
-        return edge_map, reverse_map
-
-    def _clone_panel_mesh(self, source: Panel, target: Panel) -> None:
-        """Clone mesh topology from source panel to target panel, mapping vertices."""
-        if len(source.edges) != len(target.edges):
-            logger.warning(
-                f"Symmetric panels {source.panel_name} and {target.panel_name} have different edge counts! Fallback to independent meshing."
-            )
-            target.gen_panel_mesh(self.mesh_resolution)
-            return
-
-        # 1. Match Edges Geometrically
-        edge_map, reverse_map = self._match_edges_geometrically(source, target)
-
-        if len(edge_map) != len(source.edges):
-            logger.warning(f"Failed to match all edges between {source.panel_name} and {target.panel_name}. Fallback.")
-            target.gen_panel_mesh(self.mesh_resolution)
-            return
-
-        # 2. Build Vertex Mapping (Boundary)
-        vertex_map = {}  # src_idx -> tgt_idx
-
-        for i, src_edge in enumerate(source.edges):
-            j = edge_map[i]
-            tgt_edge = target.edges[j]
-            reversed_edge = reverse_map[i]
-
-            # Map indices
-            if len(src_edge.vertex_range) != len(tgt_edge.vertex_range):
-                logger.warning(
-                    f"Edge match {i}->{j} vertex count mismatch ({len(src_edge.vertex_range)} vs {len(tgt_edge.vertex_range)}). Symmetry broken."
-                )
-                target.gen_panel_mesh(self.mesh_resolution)
-                return
-
-            s_range = src_edge.vertex_range
-            t_range = tgt_edge.vertex_range
-
-            if reversed_edge:
-                # Map src[k] -> tgt[-1-k]
-                t_range = t_range[::-1]
-
-            for s_idx, t_idx in zip(s_range, t_range, strict=True):
-                vertex_map[s_idx] = t_idx
-
-        # 3. Transform and Copy Interior Vertices
-        # We need a transformation T: Source -> Target
-        # Use boundary vertices to estimate T (Rigid + Scale + Reflection)
-        src_boundary_indices = sorted(vertex_map.keys())
-        tgt_boundary_indices = [vertex_map[i] for i in src_boundary_indices]
-
-        src_b_pts = np.array([source.panel_vertices[i] for i in src_boundary_indices])
-        tgt_b_pts = np.array([target.panel_vertices[i] for i in tgt_boundary_indices])
-
-        # Centering
-        src_mean = np.mean(src_b_pts, axis=0)
-        tgt_mean = np.mean(tgt_b_pts, axis=0)
-
-        src_centered = src_b_pts - src_mean
-        tgt_centered = tgt_b_pts - tgt_mean
-
-        # Estimate R using SVD (Orthogonal Procrustes)
-        # Tgt = Src * R
-        H = src_centered.T @ tgt_centered
-        U, _, Vt = np.linalg.svd(H)
-        R = Vt.T @ U.T
-
-        # Check determinant for reflection
-        det = np.linalg.det(R)
-        is_reflection = det < 0
-
-        # Transform Interior Vertices
-        # Identify interior vertices in Source (those not in boundary map)
-        if len(source.panel_faces) == 0:
-            # Should not happen
-            return
-
-        src_total = len(source.panel_vertices)
-
-        # Gather interior vertices
-        for i in range(src_total):
-            if i not in vertex_map:
-                # This is an interior vertex
-                p = source.panel_vertices[i]
-                # Transform
-                p_centered = p - src_mean
-                p_trans = p_centered @ R + tgt_mean
-
-                # Add to target
-                new_idx = len(target.panel_vertices)
-                target.panel_vertices.append(p_trans)
-                vertex_map[i] = new_idx
-
-        # 4. Copy Faces
-        new_faces = []
-        for face in source.panel_faces:
-            new_face = np.array([vertex_map[v] for v in face], dtype=int)
-            if is_reflection:
-                new_face = new_face[[0, 2, 1]]  # Flip winding
-            new_faces.append(new_face)
-
-        target.panel_faces = new_faces
 
     def _swap_stitch_ranges(self, stitch: Seam) -> tuple[list, list]:
         """
@@ -548,7 +418,9 @@ class BoxMesh(wrappers.VisPattern):
 
         return stitch_range_1, stitch_range_2
 
-    def _stitch_same_loc_vertex(self, panel1: Panel, loc_id1: int, glob_idx: int, stitch_id: int) -> None:
+    def _stitch_same_loc_vertex(
+        self, panel1: Panel, loc_id1: int, glob_idx: int, stitch_id: int
+    ) -> None:
         """
         Stitch two vertices together which are exactly the same local vertex and
         have not participated in a stitch so far.
@@ -571,7 +443,9 @@ class BoxMesh(wrappers.VisPattern):
         self.vertices.append(panel1.rot_trans_vertex(v_2D))
         self.stitch_segmentation.append([StitchIdentifier(stitch_id=stitch_id)])
 
-    def _stitch_two_diff_existent_glob_verts(self, glob1: int, glob2: int, glob_idx: int, stitch_id: int) -> None:
+    def _stitch_two_diff_existent_glob_verts(
+        self, glob1: int, glob2: int, glob_idx: int, stitch_id: int
+    ) -> None:
         """
         Stitch two vertices together where both have already participated in a stitch.
 
@@ -603,7 +477,9 @@ class BoxMesh(wrappers.VisPattern):
         curr_glob_v2 = self.vertices[glob_max]
         self.vertices[glob_min] = np.mean([curr_glob_v1, curr_glob_v2], axis=0)
 
-        set_verts_glob_loc = set(self.verts_glob_loc[glob_min] + self.verts_glob_loc[glob_max])
+        set_verts_glob_loc = set(
+            self.verts_glob_loc[glob_min] + self.verts_glob_loc[glob_max]
+        )
         self.verts_glob_loc[glob_min] = list(set_verts_glob_loc)
         del self.verts_glob_loc[glob_max]
         del self.vertices[glob_max]
@@ -653,7 +529,13 @@ class BoxMesh(wrappers.VisPattern):
         self.stitch_segmentation[glob].append(StitchIdentifier(stitch_id=stitch_id))
 
     def _stitch_none_existent_glob_verts(
-        self, panel1: Panel, panel2: Panel, loc_id1: int, loc_id2: int, glob_idx: int, stitch_id: int
+        self,
+        panel1: Panel,
+        panel2: Panel,
+        loc_id1: int,
+        loc_id2: int,
+        glob_idx: int,
+        stitch_id: int,
     ) -> None:
         """
         Stitch two vertices together where both of them have not yet participated in a stitch.
@@ -698,7 +580,9 @@ class BoxMesh(wrappers.VisPattern):
             of the same panel is stitched together
         """
         # Collapse stitch vertices
-        same_panel_stitching_dict: dict[tuple[str, int], list] = {}  # Store stichings of same panel
+        same_panel_stitching_dict: dict[
+            tuple[str, int], list
+        ] = {}  # Store stichings of same panel
         glob_idx = 0
         self.verts_loc_glob = {}
         self.verts_glob_loc = []
@@ -716,33 +600,57 @@ class BoxMesh(wrappers.VisPattern):
                 s2, e2 = stitch_range_2[0], stitch_range_2[-1]
                 s_min, s_max = min(s1, s2), max(s1, s2)
                 e_min, e_max = min(e1, e2), max(e1, e2)
-                same_panel_stitching_dict.setdefault((stitch.panel_1, s_min), []).append(s_max)
-                same_panel_stitching_dict.setdefault((stitch.panel_2, e_min), []).append(e_max)
+                same_panel_stitching_dict.setdefault(
+                    (stitch.panel_1, s_min), []
+                ).append(s_max)
+                same_panel_stitching_dict.setdefault(
+                    (stitch.panel_2, e_min), []
+                ).append(e_max)
 
             # Perform matching
-            for loc_id1, loc_id2 in zip(stitch_range_1, stitch_range_2):
-                if stitch.panel_1 == stitch.panel_2 and loc_id1 == loc_id2:  # same vertex
+            for loc_id1, loc_id2 in zip(stitch_range_1, stitch_range_2, strict=True):
+                if (
+                    stitch.panel_1 == stitch.panel_2 and loc_id1 == loc_id2
+                ):  # same vertex
                     if (stitch.panel_1, loc_id1) not in self.verts_loc_glob.keys():
-                        self._stitch_same_loc_vertex(panel1, loc_id1, glob_idx, stitch_id)
+                        self._stitch_same_loc_vertex(
+                            panel1, loc_id1, glob_idx, stitch_id
+                        )
                         glob_idx += 1
                     else:
                         glob_id = self.verts_loc_glob[(stitch.panel_1, loc_id1)]
-                        self.stitch_segmentation[glob_id].append(StitchIdentifier(stitch_id=stitch_id))
+                        self.stitch_segmentation[glob_id].append(
+                            StitchIdentifier(stitch_id=stitch_id)
+                        )
                 else:
-                    v1_glob_exists = (stitch.panel_1, loc_id1) in self.verts_loc_glob.keys()
-                    v2_glob_exists = (stitch.panel_2, loc_id2) in self.verts_loc_glob.keys()
+                    v1_glob_exists = (
+                        stitch.panel_1,
+                        loc_id1,
+                    ) in self.verts_loc_glob.keys()
+                    v2_glob_exists = (
+                        stitch.panel_2,
+                        loc_id2,
+                    ) in self.verts_loc_glob.keys()
                     if v1_glob_exists and v2_glob_exists:  # both exist
                         glob1 = self.verts_loc_glob[(stitch.panel_1, loc_id1)]
                         glob2 = self.verts_loc_glob[(stitch.panel_2, loc_id2)]
                         if glob1 != glob2:
-                            self._stitch_two_diff_existent_glob_verts(glob1, glob2, glob_idx, stitch_id)
+                            self._stitch_two_diff_existent_glob_verts(
+                                glob1, glob2, glob_idx, stitch_id
+                            )
                             glob_idx -= 1
                     elif v1_glob_exists:
-                        self._stitch_one_existent_glob_vert(panel1, panel2, loc_id1, loc_id2, stitch_id)
+                        self._stitch_one_existent_glob_vert(
+                            panel1, panel2, loc_id1, loc_id2, stitch_id
+                        )
                     elif v2_glob_exists:
-                        self._stitch_one_existent_glob_vert(panel2, panel1, loc_id2, loc_id1, stitch_id)
+                        self._stitch_one_existent_glob_vert(
+                            panel2, panel1, loc_id2, loc_id1, stitch_id
+                        )
                     else:  # none exist
-                        self._stitch_none_existent_glob_verts(panel1, panel2, loc_id1, loc_id2, glob_idx, stitch_id)
+                        self._stitch_none_existent_glob_verts(
+                            panel1, panel2, loc_id1, loc_id2, glob_idx, stitch_id
+                        )
                         glob_idx += 1
 
         return same_panel_stitching_dict
@@ -781,7 +689,9 @@ class BoxMesh(wrappers.VisPattern):
                 min_id = min(i, j)
                 max_id = max(i, j)
 
-                if ((panel_name, min_id) in dic) and (max_id in dic[(panel_name, min_id)]):
+                if ((panel_name, min_id) in dic.keys()) and (
+                    max_id in dic[(panel_name, min_id)]
+                ):
                     # i is stitched to j in a valid same-panel stitch
                     # => i is supposed to be part of current global vertex in question
                     invalid = False
@@ -792,7 +702,9 @@ class BoxMesh(wrappers.VisPattern):
                 return True
         return False
 
-    def _group_same_panel_stiches(self, inner_list: list[tuple[str, int]]) -> list[tuple[str, list[int]]]:
+    def _group_same_panel_stiches(
+        self, inner_list: list[tuple[str, int]]
+    ) -> list[tuple[str, list[int]]]:
         """
         Group together stitched vertices that belong to the same panel.
 
@@ -817,11 +729,15 @@ class BoxMesh(wrappers.VisPattern):
                 result_dict[name] = [value]
 
         # Filter only the panels with more than one value
-        final_result = [(name, values) for name, values in result_dict.items() if len(values) > 1]
+        final_result = [
+            (name, values) for name, values in result_dict.items() if len(values) > 1
+        ]
 
         return final_result
 
-    def _check_same_panel_stitching(self, dic: dict[tuple[str, int], list], global_ids: list[int]) -> bool:
+    def _check_same_panel_stitching(
+        self, dic: dict[tuple[str, int], list], global_ids: list[int]
+    ) -> bool:
         """
         Check for stitching of local vertices within the same panel based on a given dictionary
         containing "same panel stitching" information and global vertex IDs representing the end vertices of
@@ -887,7 +803,9 @@ class BoxMesh(wrappers.VisPattern):
         else:
             return True
 
-    def _valid_stitch_same_panel(self, stitch: Seam, same_panel_stitching_dict: dict[tuple[str, int], list]) -> bool:
+    def _valid_stitch_same_panel(
+        self, stitch: Seam, same_panel_stitching_dict: dict[tuple[str, int], list]
+    ) -> bool:
         """
         Examine whether the front and end vertices of two edges participating in a
         stitching operation have been improperly stitched together with another vertex from the same panel.
@@ -918,10 +836,14 @@ class BoxMesh(wrappers.VisPattern):
         s2_glob = self.verts_loc_glob[(stitch.panel_2, edge2.vertex_range[0])]
         e2_glob = self.verts_loc_glob[(stitch.panel_2, edge2.vertex_range[-1])]
 
-        return not self._check_same_panel_stitching(same_panel_stitching_dict, [s1_glob, e1_glob, s2_glob, e2_glob])
+        return not self._check_same_panel_stitching(
+            same_panel_stitching_dict, [s1_glob, e1_glob, s2_glob, e2_glob]
+        )
 
     def _is_stitching_valid(
-        self, same_panel_stitching_dict: dict[tuple[str, int], list], front_end_only: bool = False
+        self,
+        same_panel_stitching_dict: dict[tuple[str, int], list],
+        front_end_only: bool = False,
     ) -> tuple[bool, list[int]]:
         """
         Check validity of a current stitching.
@@ -943,13 +865,25 @@ class BoxMesh(wrappers.VisPattern):
         stitch_ids_invalid: list[int] = []
         for stitch_id, stitch in enumerate(self.stitches):
             front_end_valid = self._valid_stitch_front_end(stitch)
-            same_panel_valid = self._valid_stitch_same_panel(stitch, same_panel_stitching_dict)
+            same_panel_valid = self._valid_stitch_same_panel(
+                stitch, same_panel_stitching_dict
+            )
+
+            if not front_end_valid:
+                logger.error(
+                    f"  Stitch {stitch_id} ({stitch.panel_1}.{stitch.edge_1} <-> {stitch.panel_2}.{stitch.edge_2}) front/end invalid"
+                )
+            if not same_panel_valid:
+                logger.error(
+                    f"  Stitch {stitch_id} ({stitch.panel_1}.{stitch.edge_1} <-> {stitch.panel_2}.{stitch.edge_2}) same panel invalid"
+                )
 
             if front_end_only:
                 if not front_end_valid:
                     stitch_ids_invalid.append(stitch_id)
-            elif not front_end_valid or not same_panel_valid:
-                stitch_ids_invalid.append(stitch_id)
+            else:
+                if not front_end_valid or not same_panel_valid:
+                    stitch_ids_invalid.append(stitch_id)
 
         valid = len(stitch_ids_invalid) == 0
 
@@ -966,9 +900,19 @@ class BoxMesh(wrappers.VisPattern):
         # Check stitches validity: edge collapse (start==end)
         # NOTE: Separating checks by error type to reduce number of invalid stitch orientations to process
         # in each case
-        valid, _ = self._is_stitching_valid(same_panel_stitching_dict, front_end_only=False)
+        valid, _ = self._is_stitching_valid(
+            same_panel_stitching_dict, front_end_only=False
+        )
         if not valid:
             logger.error("Invalid stitching. Unable to fix")
+            # Debug: dump some merges
+            for g_id, l_ids in enumerate(self.verts_glob_loc):
+                if l_ids and len(l_ids) > 1:
+                    panels_merged = [l[0] for l in l_ids]
+                    if len(set(panels_merged)) < len(panels_merged):
+                        logger.error(
+                            f"  Global ID {g_id} has same-panel vertices: {l_ids}"
+                        )
             raise StitchingError()
 
     def _get_glob_ids(self, panel: Panel, face: list[int]) -> list[int]:
@@ -1025,7 +969,9 @@ class BoxMesh(wrappers.VisPattern):
 
         return n_normalized
 
-    def _check_norm_local(self, idx_a: int, idx_b: int, idx_c: int, panel_norm: list[float], v_3D: list) -> bool:
+    def _check_norm_local(
+        self, idx_a: int, idx_b: int, idx_c: int, panel_norm: list[float], v_3D: list
+    ) -> bool:
         """
         Check if the norm defined by the three vertices a,b, and c equals panel_norm.
 
@@ -1073,7 +1019,9 @@ class BoxMesh(wrappers.VisPattern):
             faces_array[:, [1, 2]] = faces_array[:, [2, 1]]
             panel.panel_faces = list(faces_array)
 
-    def _set_el_within_range(self, low: float, up: float, tolerance_factor: float = 0.02) -> float:
+    def _set_el_within_range(
+        self, low: float, up: float, tolerance_factor: float = 0.02
+    ) -> float:
         """
         Return a value between low and up based on the tolerance_factor.
 
@@ -1137,13 +1085,14 @@ class BoxMesh(wrappers.VisPattern):
         min_el = min([el_i, el_i_old])
         low = max(low_old, abs(el_j - el_k))
         up = min(up_old, el_j + el_k)
-        if low < min_el < up:
+        if low < min_el and min_el < up:
             el = min_el
         elif low < up and min_el < low:
             el = self._set_el_within_range(low, up)
         else:
             logger.warning(
-                f"Impossible to set ground truth edge length of vertices {id1} and {id2}. Simulation is going to crash"
+                f"Impossible to set ground truth edge length of vertices {id1} and {id2}. "
+                f"Simulation is going to crash"
             )
             return low
         return el
@@ -1185,25 +1134,31 @@ class BoxMesh(wrappers.VisPattern):
         el2 = float(np.linalg.norm(np.array(v3 - v2)))
         el3 = float(np.linalg.norm(np.array(v3 - v1)))
 
-        e1_exists = (glob_id1, glob_id2) in stitch_edges_gt
-        e2_exists = (glob_id2, glob_id3) in stitch_edges_gt
-        e3_exists = (glob_id1, glob_id3) in stitch_edges_gt
+        e1_exists = (glob_id1, glob_id2) in stitch_edges_gt.keys()
+        e2_exists = (glob_id2, glob_id3) in stitch_edges_gt.keys()
+        e3_exists = (glob_id1, glob_id3) in stitch_edges_gt.keys()
 
         low1_old, low2_old, low3_old = None, None, None
 
         if e1_exists:
             low1_old, up1_old, _ = stitch_edges_gt[glob_id1, glob_id2]
-            el1 = self._get_seam_gt_el(el1, el2, el3, glob_id1, glob_id2, stitch_edges_gt)
+            el1 = self._get_seam_gt_el(
+                el1, el2, el3, glob_id1, glob_id2, stitch_edges_gt
+            )
         self.orig_lens[(glob_id1, glob_id2)] = el1
 
         if e2_exists:
             low2_old, up2_old, _ = stitch_edges_gt[glob_id2, glob_id3]
-            el2 = self._get_seam_gt_el(el2, el1, el3, glob_id2, glob_id3, stitch_edges_gt)
+            el2 = self._get_seam_gt_el(
+                el2, el1, el3, glob_id2, glob_id3, stitch_edges_gt
+            )
         self.orig_lens[(glob_id2, glob_id3)] = el2
 
         if e3_exists:
             low3_old, up3_old, _ = stitch_edges_gt[glob_id1, glob_id3]
-            el3 = self._get_seam_gt_el(el3, el1, el2, glob_id1, glob_id3, stitch_edges_gt)
+            el3 = self._get_seam_gt_el(
+                el3, el1, el2, glob_id1, glob_id3, stitch_edges_gt
+            )
         self.orig_lens[(glob_id1, glob_id3)] = el3
 
         n_stitches = panel.n_stitches
@@ -1278,14 +1233,30 @@ class BoxMesh(wrappers.VisPattern):
             self.vertices += v_3D_non_stitch
 
             # Assign edge labels to vertices
+            logger.debug(
+                f"Assigning labels for panel {panelname} ({len(panel.edges)} edges)"
+            )
             for edge in panel.edges:
                 if edge.label and edge.stitch_ref is None:
-                    # Use vertex range to assign edge labels to non-stitching vertices
-                    e_verts = np.array(
-                        edge.vertex_range[1:-1]
-                    )  # Exclude ends which are located elsewhere and may be in a stitch
-                    labeled_verts = e_verts + len_B_verts - n_stitches_panel
-                    self.vertex_labels.setdefault(edge.label, []).extend(labeled_verts.tolist())
+                    # Use _get_glob_ids to handle all vertices including stitched corners
+                    # This ensures short edges (with no internal vertices) are still labeled
+                    if hasattr(edge, "vertex_range") and edge.vertex_range:
+                        labeled_verts = self._get_glob_ids(panel, edge.vertex_range)
+
+                        # Convert enum to string value for consistent lookup
+                        label_key = (
+                            edge.label.value
+                            if hasattr(edge.label, "value")
+                            else str(edge.label)
+                        )
+
+                        logger.debug(
+                            f"Labeled {len(labeled_verts)} vertices with '{label_key}'"
+                        )
+
+                        self.vertex_labels.setdefault(label_key, []).extend(
+                            labeled_verts
+                        )
 
             # Order face vertices so that face norms are equal to the panel.panel_norm
             self._order_face_vertices(panel, v_3D)
@@ -1293,11 +1264,17 @@ class BoxMesh(wrappers.VisPattern):
             texture_offset = len(self.vertex_texture)
 
             for face in panel.panel_faces:
-                loc_stitch_ids = [loc_id for loc_id in face if loc_id < n_stitches_panel]
+                loc_stitch_ids = [
+                    loc_id for loc_id in face if loc_id < n_stitches_panel
+                ]
 
                 f_glob_ids = self._get_glob_ids(panel, face)
 
-                if f_glob_ids[0] == f_glob_ids[1] or f_glob_ids[1] == f_glob_ids[2] or f_glob_ids[0] == f_glob_ids[2]:
+                if (
+                    f_glob_ids[0] == f_glob_ids[1]
+                    or f_glob_ids[1] == f_glob_ids[2]
+                    or f_glob_ids[0] == f_glob_ids[2]
+                ):
                     continue  # Do not add faces which are points or lines after stitching
 
                 if loc_stitch_ids:
@@ -1316,10 +1293,532 @@ class BoxMesh(wrappers.VisPattern):
 
             # Add panel name to stitch_segmentation (as list for consistency)
             n_non_stitches_panel = len(panel.panel_vertices) - n_stitches_panel
-            self.stitch_segmentation.extend([[PanelIdentifier(panel_name=panel.panel_name)]] * n_non_stitches_panel)
+            self.stitch_segmentation.extend(
+                [[PanelIdentifier(panel_name=panel.panel_name)]] * n_non_stitches_panel
+            )
+
+        # Compute deterministic metadata (ring_connectors, seam_paths)
+        self._compute_deterministic_metadata()
+
+        # Translate ARAPInitializable rings to mesh-level vertex sequences
+        self._translate_arap_rings()
 
         # NOTE: self.vertices now contains all mesh vertices
         # self.faces now contains all mesh faces
+
+    def _compute_deterministic_metadata(self) -> None:
+        """Compute ring_connectors and seam_paths from program edge definitions.
+
+        This method uses the garment program's helper methods (get_ring_edges,
+        get_seam_path_edges) to deterministically compute metadata, avoiding
+        heuristic detection in feature_recognition.
+
+        If the program doesn't implement these methods, the metadata fields
+        remain unpopulated and the system falls back to heuristics.
+        """
+        if self.garment_metadata is None:
+            logger.debug(
+                "No garment_metadata available, skipping deterministic computation"
+            )
+            return
+
+        if self.program is None:
+            logger.debug("No program available, skipping deterministic computation")
+            return
+
+        # Determine which rings to compute based on category
+        category = self.garment_metadata.category
+        ring_types: list[GarmentRingType] = []
+
+        if category.value == "pants":
+            ring_types = [
+                GarmentRingType.HEM,  # Top of pants (mapped from lower_interface)
+                GarmentRingType.RIGHT_ANKLE,
+                GarmentRingType.LEFT_ANKLE,
+            ]
+        elif category.value == "shirt":
+            ring_types = [
+                GarmentRingType.COLLAR,
+                GarmentRingType.HEM,
+                GarmentRingType.LEFT_CUFF,
+                GarmentRingType.RIGHT_CUFF,
+            ]
+        elif category.value == "skirt":
+            ring_types = [
+                GarmentRingType.WAIST,
+                GarmentRingType.SKIRT_HEM,
+            ]
+        else:
+            logger.debug(f"No ring type configuration for category {category}")
+            return
+
+        # Try to get the program's helper method for labels
+
+        # Debug: show what labels are available
+        logger.debug(f"vertex_labels keys: {list(self.vertex_labels.keys())}")
+
+        # Compute seam paths first
+        seam_paths: list[SeamPath] = []
+        from weon_garment_code.pygarment.meshgen.arap.category_strategies import (
+            get_strategy,
+        )
+
+        strategy = get_strategy(self.garment_metadata.category)
+        sequences = strategy.get_ring_sequences()
+
+        # Temporary storage for ring connectors derived from seams
+        # We store list of candidates and will pick best two later
+        ring_connector_candidates: dict[GarmentRingType, list[int]] = {
+            rt: [] for rt in ring_types
+        }
+
+        for seq in sequences:
+            if len(seq) < 2:
+                continue
+
+            for i in range(len(seq) - 1):
+                r1, r2 = seq[i], seq[i + 1]
+
+                # Ask program for edges
+                if not hasattr(self.program, "get_seam_path_edges"):
+                    # If this is an ARAPInitializable program, we skip this legacy computation
+                    # and rely on _translate_arap_rings() instead.
+                    if isinstance(self.program, ARAPInitializable):
+                        logger.debug(
+                            "Skipping legacy seam path computation for ARAPInitializable program"
+                        )
+                        return
+
+                    logger.warning(
+                        f"Program for category {category} does not implement get_seam_path_edges"
+                    )
+                    return
+
+                path_edges = self.program.get_seam_path_edges(r1, r2)
+                if not path_edges:
+                    logger.warning(
+                        f"No seam path edges returned for {r1.value} -> {r2.value}"
+                    )
+                    continue
+
+                # Process edges into a vertex list
+                path_vertices: list[int] = []
+                path_panel_ids: list[set[str]] = []
+                remaining_edges = list(path_edges)
+
+                while remaining_edges:
+                    found_next = False
+
+                    for idx, (edge, panel_name) in enumerate(remaining_edges):
+                        if panel_name not in self.panels:
+                            raise ValueError(
+                                f"Panel {panel_name} in seam path not found in BoxMesh"
+                            )
+
+                        panel = self.panels[panel_name]
+                        try:
+                            # Use geometric_id to map back to meshed edges
+                            meshed_edge = panel.edges[edge.geometric_id]
+                        except (AttributeError, IndexError):
+                            raise ValueError(
+                                f"Edge {edge.geometric_id} in panel {panel_name} not found in BoxMesh"
+                            )
+
+                        # Get global IDs for this edge's vertices
+                        if not meshed_edge.vertex_range:
+                            g_ids = self._get_glob_ids(panel, meshed_edge.endpoints)
+                        else:
+                            g_ids = self._get_glob_ids(panel, meshed_edge.vertex_range)
+
+                        if not g_ids:
+                            raise ValueError(
+                                f"No vertices found for edge {edge.geometric_id} in panel {panel_name}"
+                            )
+
+                        if not path_vertices:
+                            # Start with the first edge provided by the program
+                            path_vertices.extend(g_ids)
+                            for gid in g_ids:
+                                path_panel_ids.append(
+                                    {p_name for p_name, _ in self.verts_glob_loc[gid]}
+                                )
+
+                            remaining_edges.pop(idx)
+                            found_next = True
+                            break
+                        else:
+                            last_v = path_vertices[-1]
+                            logger.debug(
+                                f"  Checking edge in {panel_name}: g_ids={g_ids}, last_v={last_v}"
+                            )
+                            if g_ids[0] == last_v:
+                                # Appending correctly oriented edge
+                                logger.debug(
+                                    f"  Found continuation: {last_v} -> {g_ids[1:]}"
+                                )
+                                path_vertices.extend(g_ids[1:])
+                                for gid in g_ids[1:]:
+                                    path_panel_ids.append(
+                                        {
+                                            p_name
+                                            for p_name, _ in self.verts_glob_loc[gid]
+                                        }
+                                    )
+
+                                remaining_edges.pop(idx)
+                                found_next = True
+                                break
+                            elif g_ids[-1] == last_v:
+                                # Appending reversed edge
+                                logger.debug(
+                                    f"  Found continuation (reversed): {last_v} -> {g_ids[::-1][1:]}"
+                                )
+                                rev_g_ids = g_ids[::-1]
+                                path_vertices.extend(rev_g_ids[1:])
+                                for gid in rev_g_ids[1:]:
+                                    path_panel_ids.append(
+                                        {
+                                            p_name
+                                            for p_name, _ in self.verts_glob_loc[gid]
+                                        }
+                                    )
+
+                                remaining_edges.pop(idx)
+                                found_next = True
+                                break
+
+                    if not found_next:
+                        # Should not happen with well-defined garment programs
+                        raise ValueError(
+                            f"Discontinuity in seam path {r1.value} -> {r2.value}"
+                        )
+
+                if path_vertices:
+                    v_start, v_end = path_vertices[0], path_vertices[-1]
+                    seam_paths.append(
+                        SeamPath(
+                            ring_type_1=r1,
+                            ring_type_2=r2,
+                            connector_1=v_start,
+                            connector_2=v_end,
+                            path=path_vertices,
+                            panel_ids=path_panel_ids,
+                        )
+                    )
+                    # Add as candidates for ring connectors
+                    if r1 in ring_connector_candidates:
+                        ring_connector_candidates[r1].append(v_start)
+                    if r2 in ring_connector_candidates:
+                        ring_connector_candidates[r2].append(v_end)
+
+        # Now finalize ring connectors from candidates
+        ring_connectors: dict[GarmentRingType, RingConnectorPair] = {}
+        for ring_type in ring_types:
+            candidates = ring_connector_candidates[ring_type]
+
+            # Remove duplicates while preserving order
+            unique_candidates = list(dict.fromkeys(candidates))
+
+            if len(unique_candidates) < 2:
+                # If only one or zero connector found from seams, it's an error
+                # unless the ring is a termination ring and we only have one path.
+                # But for Shirt/Pants, all rings should have 2 seams.
+                raise ValueError(
+                    f"Ring {ring_type.value} needs at least 2 seam connections, found {len(unique_candidates)}"
+                )
+
+            # Assign first two candidates as connectors
+            # Order usually matters, but seam endpoints are the best we have.
+            # We can use _find_most_separated_vertices to ensure they are the right ones
+            # if we have more than 2 candidates (rare).
+            if len(unique_candidates) > 2:
+                c1, c2 = self._find_most_separated_vertices(unique_candidates)
+            else:
+                c1, c2 = unique_candidates[0], unique_candidates[1]
+
+            ring_connectors[ring_type] = RingConnectorPair(
+                connector_1=c1,
+                connector_2=c2,
+            )
+            logger.info(
+                f"Ring {ring_type.value}: connectors {c1}, {c2} (derived from seams)"
+            )
+
+        self.garment_metadata.ring_connectors = ring_connectors
+        self.garment_metadata.seam_paths = seam_paths
+
+        logger.info(
+            f"Computed deterministic metadata: {len(ring_connectors)} ring connectors, {len(seam_paths)} seam paths"
+        )
+
+    def _translate_edge_path(self, edges: list) -> tuple[list[int], list[set[str]]]:
+        """Translate a sequence of garment edges to mesh vertex indices.
+
+        Assumes edges are ordered and effectively continuous.
+
+        Parameters
+        ----------
+        edges : list[pyg.Edge]
+            Sequence of edges forming a path.
+
+        Returns
+        -------
+        tuple[list[int], list[set[str]]]
+            Ordered list of global vertex indices and corresponding panel IDs.
+        """
+        path_vertices: list[int] = []
+        path_panels: list[set[str]] = []
+
+        for edge in edges:
+            if not hasattr(edge, "panel") or not edge.panel:
+                logger.warning(f"Edge {edge} has no panel reference")
+                continue
+
+            panel_name = edge.panel.name
+            if panel_name not in self.panels:
+                logger.warning(f"Panel '{panel_name}' not found in BoxMesh panels")
+                continue
+
+            panel_mesh = self.panels[panel_name]
+
+            # Find corresponding meshed edge to get vertex indices
+            try:
+                meshed_edge = panel_mesh.edges[edge.geometric_id]
+            except (IndexError, AttributeError):
+                # If we can't find it, we can't get indices.
+                # (Passing coords to _get_glob_ids crashes with TypeError).
+                logger.warning(
+                    f"Could not find meshed edge for {edge} (id={edge.geometric_id}) in {panel_name}"
+                )
+                continue
+
+            # Determine vertex IDs using meshed edge metadata
+            g_ids = []
+            if hasattr(meshed_edge, "vertex_range") and meshed_edge.vertex_range:
+                g_ids = self._get_glob_ids(panel_mesh, meshed_edge.vertex_range)
+
+            if not g_ids:
+                logger.warning(
+                    f"No vertices found for edge {edge} in panel {panel_name}"
+                )
+                continue
+
+            # Check direction against edge geometry
+            # g_ids is ordered by index/creation, not necessarily geometric flow.
+            # edge.start / edge.end dictate the flow.
+            # We check which end of g_ids corresponds to edge.start.
+            if len(g_ids) > 1:
+                v_start_idx = g_ids[0]
+                v_end_idx = g_ids[-1]
+
+                # Get actual 3D positions of the mesh vertices
+                v_start_3d = np.array(self.vertices[v_start_idx])
+                v_end_3d = np.array(self.vertices[v_end_idx])
+
+                # Get edge 3D start/end (mapped to 3D via panel)
+                edge_start_3d = panel_mesh.rot_trans_vertex(np.array(edge.start))
+                edge_end_3d = panel_mesh.rot_trans_vertex(np.array(edge.end))
+
+                # Compare distances
+                # Case 1: g_ids[0] ~ edge.start, g_ids[-1] ~ edge.end (Correct order)
+                dist_direct = np.linalg.norm(
+                    v_start_3d - edge_start_3d
+                ) + np.linalg.norm(v_end_3d - edge_end_3d)
+
+                # Case 2: g_ids[0] ~ edge.end, g_ids[-1] ~ edge.start (Reverse order)
+                dist_reverse = np.linalg.norm(
+                    v_start_3d - edge_end_3d
+                ) + np.linalg.norm(v_end_3d - edge_start_3d)
+
+                if dist_reverse < dist_direct:
+                    g_ids = g_ids[::-1]
+
+            # Construct panel set for these vertices
+            current_panel_set = {panel_name}
+            p_ids = [current_panel_set for _ in g_ids]
+
+            # Stitch logic
+            if not path_vertices:
+                path_vertices.extend(g_ids)
+                path_panels.extend(p_ids)
+            else:
+                last_v = path_vertices[-1]
+                if g_ids[0] == last_v:
+                    path_vertices.extend(g_ids[1:])
+                    path_panels.extend(p_ids[1:])
+                elif g_ids[-1] == last_v:
+                    path_vertices.extend(g_ids[::-1][1:])
+                    path_panels.extend(p_ids[::-1][1:])
+                else:
+                    logger.debug(
+                        f"Path discontinuity: {last_v} not in {g_ids[0]}/{g_ids[-1]}"
+                    )
+                    path_vertices.extend(g_ids)
+                    path_panels.extend(p_ids)
+
+        return path_vertices, path_panels
+
+    def _translate_arap_rings(self) -> None:
+        """Translate ARAPInitializable rings and seams to mesh indices.
+
+        Populates self.garment_metadata.mesh_rings and mesh_ring_connections.
+        """
+        if self.program is None:
+            logger.debug("No program available for ARAP ring translation")
+            return
+
+        if self.garment_metadata is None:
+            logger.debug("No garment_metadata available for ARAP ring translation")
+            return
+
+        # Check if program implements ARAPInitializable
+        if not isinstance(self.program, ARAPInitializable):
+            logger.debug(
+                f"Program {type(self.program).__name__} does not implement ARAPInitializable"
+            )
+            return
+
+        try:
+            garment_rings = self.program.get_rings()
+        except Exception as e:
+            logger.warning(f"Failed to get rings from program: {e}")
+            return
+
+        if not garment_rings:
+            logger.debug("No rings defined by program")
+            return
+
+        logger.info(f"Translating {len(garment_rings)} rings from ARAPInitializable")
+
+        # Translate each garment ring to mesh-level
+        mesh_rings: dict[GarmentRingType, list[int]] = {}
+
+        for g_ring in garment_rings:
+            try:
+                # Get vertex indices for ring edges from vertex_labels
+                label_key = g_ring.ring_type.value
+                if label_key in self.vertex_labels:
+                    vertex_indices = self.vertex_labels[label_key]
+                elif label_key == "hem" and "lower_interface" in self.vertex_labels:
+                    # HEM often uses lower_interface label
+                    vertex_indices = self.vertex_labels["lower_interface"]
+                else:
+                    logger.warning(
+                        f"Ring {g_ring.ring_type.value}: no vertex_labels found"
+                    )
+                    continue
+
+                if len(vertex_indices) < 3:
+                    logger.warning(
+                        f"Ring {g_ring.ring_type.value}: only {len(vertex_indices)} vertices"
+                    )
+                    continue
+
+                mesh_rings[g_ring.ring_type] = vertex_indices
+                logger.debug(
+                    f"Ring {g_ring.ring_type.value}: {len(vertex_indices)} mesh vertices"
+                )
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to translate ring {g_ring.ring_type.value}: {e}"
+                )
+                continue
+
+        # Store in garment_metadata
+        self.garment_metadata.mesh_rings = mesh_rings
+
+        # Ring connections (seam paths)
+        mesh_connections: list[MeshRingConnection] = []
+
+        # 1. Try ARAPInitializable interface first
+        try:
+            garment_connections = self.program.get_ring_connections()
+            if garment_connections:
+                logger.debug(f"Got {len(garment_connections)} connections from program")
+                for conn in garment_connections:
+                    try:
+                        path_indices, path_panels = self._translate_edge_path(
+                            conn.path_edges.edges
+                        )
+                        if path_indices:
+                            mesh_connections.append(
+                                MeshRingConnection(
+                                    ring_1=conn.ring_1,
+                                    ring_2=conn.ring_2,
+                                    connector_1_idx=path_indices[0],
+                                    connector_2_idx=path_indices[-1],
+                                    path_vertex_indices=path_indices,
+                                    panel_ids=path_panels,
+                                )
+                            )
+                        else:
+                            logger.warning(
+                                f"Empty path for connection {conn.ring_1}->{conn.ring_2}"
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to translate path {conn.ring_1}->{conn.ring_2}: {e}"
+                        )
+        except Exception as e:
+            logger.warning(f"Failed to get ring connections: {e}")
+
+        # 2. Fallback to existing seam_paths if no connections found
+        if not mesh_connections and self.garment_metadata.seam_paths:
+            logger.debug("Falling back to legacy seam_paths")
+            for seam in self.garment_metadata.seam_paths:
+                mesh_connections.append(
+                    (seam.ring_type_1, seam.ring_type_2, seam.path, seam.panel_ids)  # type: ignore
+                )
+
+        self.garment_metadata.mesh_ring_connections = mesh_connections
+
+        logger.info(
+            f"Translated ARAP rings: {len(mesh_rings)} rings, "
+            f"{len(self.garment_metadata.mesh_ring_connections or [])} connections"
+        )
+
+    def _find_most_separated_vertices(
+        self, vertex_indices: list[int]
+    ) -> tuple[int, int]:
+        """Find the two most geometrically separated vertices from a list.
+
+        Parameters
+        ----------
+        vertex_indices : list[int]
+            List of global vertex indices.
+
+        Returns
+        -------
+        tuple[int, int]
+            The two vertex indices with maximum Euclidean distance.
+
+        Raises
+        ------
+        ValueError
+            If fewer than 2 vertices provided.
+        """
+        if len(vertex_indices) < 2:
+            raise ValueError("Need at least 2 vertices to find separation")
+
+        # Remove duplicates while preserving order
+        unique_indices = list(dict.fromkeys(vertex_indices))
+        if len(unique_indices) < 2:
+            raise ValueError("Need at least 2 unique vertices")
+
+        max_dist = -1.0
+        best_pair = (unique_indices[0], unique_indices[1])
+
+        for i, idx1 in enumerate(unique_indices):
+            v1 = np.array(self.vertices[idx1])
+            for idx2 in unique_indices[i + 1 :]:
+                v2 = np.array(self.vertices[idx2])
+                dist = float(np.linalg.norm(v1 - v2))
+                if dist > max_dist:
+                    max_dist = dist
+                    best_pair = (idx1, idx2)
+
+        return best_pair
 
     def find_vertices_by_edge_labels(self, labels: list[EdgeLabel]) -> list[int]:
         """
@@ -1345,7 +1844,9 @@ class BoxMesh(wrappers.VisPattern):
             for edge in panel.edges:
                 if edge.label and EdgeLabel(edge.label) in labels:
                     if not edge.vertex_range:
-                        logger.warning(f'Edge with label "{edge.label}" has no vertex_range for panel {panel_name}')
+                        logger.warning(
+                            f'Edge with label "{edge.label}" has no vertex_range for panel {panel_name}'
+                        )
                         continue
 
                     # Get the end vertex (last one in the vertex_range)
@@ -1357,7 +1858,9 @@ class BoxMesh(wrappers.VisPattern):
 
         return found_vertices
 
-    def process_attachment_constraints(self, vertex_processor: Callable[["BoxMesh"], None] | None = None) -> None:
+    def process_attachment_constraints(
+        self, vertex_processor: Callable[["BoxMesh"], None] | None = None
+    ) -> None:
         """
         Process attachment constraints to label vertices in the mesh.
 
@@ -1388,7 +1891,9 @@ class BoxMesh(wrappers.VisPattern):
         if vertex_processor is not None:
             vertex_processor(self)
         else:
-            logger.debug("No vertex processor callback provided, skipping attachment constraint processing")
+            logger.debug(
+                "No vertex processor callback provided, skipping attachment constraint processing"
+            )
 
     def _process_attachment_constraints(self) -> None:
         """
@@ -1416,9 +1921,15 @@ class BoxMesh(wrappers.VisPattern):
             # Use the first found crotch vertex
             crotch_vertex_global_id = crotch_edges[0]
             crotch_y = self.vertices[crotch_vertex_global_id][1]
-            below_crotch_vertices = [i for i, v in enumerate(self.vertices) if v[1] < crotch_y]
-            self.vertex_labels.setdefault(EdgeLabel.CROTCH.value, []).extend(below_crotch_vertices)
-            logger.debug(f"Labeled {len(below_crotch_vertices)} vertices below crotch (y < {crotch_y:.2f})")
+            below_crotch_vertices = [
+                i for i, v in enumerate(self.vertices) if v[1] < crotch_y
+            ]
+            self.vertex_labels.setdefault(EdgeLabel.CROTCH.value, []).extend(
+                below_crotch_vertices
+            )
+            logger.debug(
+                f"Labeled {len(below_crotch_vertices)} vertices below crotch (y < {crotch_y:.2f})"
+            )
 
     def eval_vertex_normals(self) -> np.ndarray:
         """
@@ -1436,7 +1947,9 @@ class BoxMesh(wrappers.VisPattern):
 
             for face in panel.panel_faces:
                 f_glob_ids = self._get_glob_ids(panel, face)
-                loc_stitch_ids = [loc_id for loc_id in face if loc_id < n_stitches_panel]
+                loc_stitch_ids = [
+                    loc_id for loc_id in face if loc_id < n_stitches_panel
+                ]
                 if loc_stitch_ids:
                     v0, v1, v2 = np.array(self.vertices)[f_glob_ids]
                     face_norm = list(self.calc_norm(v0, v1, v2))
@@ -1454,22 +1967,31 @@ class BoxMesh(wrappers.VisPattern):
         # Add labels on stitched vertices using stitch_id_label
         for v_id, seg_labels in enumerate(self.stitch_segmentation):
             # seg_labels is always a list now
-            if not seg_labels or not seg_labels[0].is_stitch():  # Processed all stitches
+            if (
+                not seg_labels or not seg_labels[0].is_stitch()
+            ):  # Processed all stitches
                 break
             for entry in seg_labels:
                 if isinstance(entry, StitchIdentifier):
                     label = self.stitches[entry.stitch_id].label
                     if label is not None:  # Found a labeled vertex!
                         # Convert label string to EdgeLabel enum if it exists
-                        label_str = str(label) if not isinstance(label, EdgeLabel) else label.value
+                        label_str = (
+                            label.value if hasattr(label, "value") else str(label)
+                        )
                         self.vertex_labels.setdefault(label_str, []).append(v_id)
 
         # Save to yaml
         with open(self.paths.g_vert_labels, "w") as file:
-            yaml.dump(self.vertex_labels, file, default_flow_style=False, sort_keys=False)
+            yaml.dump(
+                self.vertex_labels, file, default_flow_style=False, sort_keys=False
+            )
 
     def save_box_mesh_obj(
-        self, with_normals: bool = False, in_uv_config: dict = {}, mat_name: str = "panels_texture"
+        self,
+        with_normals: bool = False,
+        in_uv_config: dict = {},
+        mat_name: str = "panels_texture",
     ) -> None:
         """
         Create an obj file of the generated box mesh from pattern and store it to save_path.
@@ -1499,7 +2021,10 @@ class BoxMesh(wrappers.VisPattern):
         uvs = texture_mesh_islands(
             texture_coords=np.array(self.vertex_texture),
             face_texture_coords=np.array(
-                [[tex_id0, tex_id1, tex_id2] for _, tex_id0, _, tex_id1, _, tex_id2 in self.faces_with_texture]
+                [
+                    [tex_id0, tex_id1, tex_id2]
+                    for _, tex_id0, _, tex_id1, _, tex_id2 in self.faces_with_texture
+                ]
             ),
             out_texture_image_path=self.paths.g_texture,
             out_fabric_tex_image_path=self.paths.g_texture_fabric,
@@ -1529,7 +2054,7 @@ class BoxMesh(wrappers.VisPattern):
             return
 
         rows = self.stitch_segmentation
-        with open(self.paths.g_mesh_segmentation, "w") as file:
+        with open("sim_segmentation.txt", "w") as file:
             for row in rows:
                 # row is always a list now, convert entries to strings and join with comma
                 row_data = ",".join(str(entry) for entry in row)

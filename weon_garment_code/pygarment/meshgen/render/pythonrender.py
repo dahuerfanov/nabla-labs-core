@@ -1,5 +1,6 @@
 import os
 import platform
+
 if platform.system() == 'Linux':
     os.environ["PYOPENGL_PLATFORM"] = "egl"
 import numpy as np
@@ -7,7 +8,6 @@ import pyrender
 import trimesh
 from PIL import Image
 
-from weon_garment_code.config import PathCofig
 from weon_garment_code.config.render_config import RenderConfig
 
 
@@ -133,7 +133,6 @@ def create_lights(scene, intensity=30.0):
 def render(
         pyrender_garm_mesh, pyrender_body_mesh, 
         side, 
-        paths: PathCofig, 
         render_config: RenderConfig | None = None
     ):
     if render_config and render_config.resolution:
@@ -172,9 +171,9 @@ def render(
     color, _ = renderer.render(scene, flags=pyrender.RenderFlags.RGBA)
 
     image = Image.fromarray(color)
-    image.save(paths.render_path(side), "PNG")
+    return image
 
-def load_meshes(paths:PathCofig, body_v, body_f):
+def load_meshes(garm_mesh, body_v, body_f):
     # Load body mesh
     body_mesh = trimesh.Trimesh(body_v, body_f)
     body_mesh.vertices = body_mesh.vertices / 100
@@ -186,32 +185,26 @@ def load_meshes(paths:PathCofig, body_v, body_f):
     )
     pyrender_body_mesh = pyrender.Mesh.from_trimesh(body_mesh, material=body_material)
 
-
-    #Load garment mesh
-    garm_mesh = trimesh.load_mesh(str(paths.g_sim))  # NOTE: Includes the texture
-    garm_mesh.vertices = garm_mesh.vertices / 100   # scale to m
-
     # Material adjustments
-    material = garm_mesh.visual.material.to_pbr()
-    material.baseColorFactor = [1., 1., 1., 1.]
-    material.doubleSided = True  # color both face sides  
-    # NOTE remove transparency -- add white background just in case
-    white_back = Image.new('RGBA', material.baseColorTexture.size, color=(255, 255, 255, 255))
-    white_back.paste(material.baseColorTexture)
-    material.baseColorTexture = white_back.convert('RGB')  
+    # material = garm_mesh.visual.material.to_pbr()
+    # material.baseColorFactor = [1., 1., 1., 1.]
+    # material.doubleSided = True  # color both face sides  
+    # # NOTE remove transparency -- add white background just in case
+    # white_back = Image.new('RGBA', material.baseColorTexture.size, color=(255, 255, 255, 255))
+    # white_back.paste(material.baseColorTexture)
+    # material.baseColorTexture = white_back.convert('RGB')  
 
-    garm_mesh.visual.material = material
+    # garm_mesh.visual.material = material
 
     pyrender_garm_mesh = pyrender.Mesh.from_trimesh(garm_mesh, smooth=True) 
     
     return pyrender_garm_mesh, pyrender_body_mesh
 
 def render_images(
-    paths: PathCofig,
+    draped_garment_mesh,
     body_v,
     body_f,
     render_config: RenderConfig,
-    experiment_tracker=None
 ):
     """Render images for all specified sides.
     
@@ -228,20 +221,13 @@ def render_images(
     experiment_tracker : ExperimentTracker, optional
         Optional experiment tracker for logging rendered images to MLflow
     """
-    pyrender_garm_mesh, pyrender_body_mesh = load_meshes(paths, body_v, body_f)
+    pyrender_garm_mesh, pyrender_body_mesh = load_meshes(draped_garment_mesh, body_v, body_f)
 
+    image_dict = {}
     for side in render_config.sides:
-        render(pyrender_garm_mesh, pyrender_body_mesh, side, paths, render_config)
+        image = render(pyrender_garm_mesh, pyrender_body_mesh, side, render_config)
+        image_dict[side] = image
     
-    # Log rendered images to experiment tracker if provided
-    if experiment_tracker is not None:
-        try:
-            experiment_tracker.log_rendered_images(paths, render_config.sides)
-            # Also log texture.png file
-            experiment_tracker.log_texture(paths)
-        except Exception as e:
-            # Don't fail rendering if tracking fails
-            from loguru import logger
-            logger.warning(f"Failed to log rendered images to experiment tracker: {e}")
+    return image_dict
 
 

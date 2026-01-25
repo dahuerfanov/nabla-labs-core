@@ -1,6 +1,5 @@
 import json
 import pickle
-from typing import Optional
 
 import igl
 import numpy as np
@@ -33,9 +32,7 @@ class SimulationGarment:
         self,
         name: str,
         config: SimConfig,
-        paths: PathCofig,
-        caching: bool = False,
-        garment_data: Optional[GarmentData] = None
+        garment_data: GarmentData | None = None
     ) -> None:
         """Initialize the simulation garment.
         
@@ -45,18 +42,11 @@ class SimulationGarment:
             Name of the garment/cloth being simulated.
         config : SimConfig
             Simulation configuration object containing all simulation parameters.
-        paths : PathCofig
-            Path configuration object containing all necessary file paths.
-        caching : bool, optional
-            If True, enables caching of intermediate frames and extra logging.
-            Default is False.
         garment_data : GarmentData, optional
             Optional in-memory garment data. If provided, the simulation will
             use this data directly instead of reading from disk. Default is None.
         """
 
-        self.caching = caching   # Saves intermediate frames, extra logs, etc.
-        self.paths = paths
         self.name = name
         self.config = config
         self.garment_data = garment_data  # Optional in-memory data
@@ -72,7 +62,6 @@ class SimulationGarment:
 
         self.c_scale = 1.0
         self.b_scale = 100.0
-        self.body_path = paths.in_body_obj
         
         # collision resolution options
         self.enable_body_smoothing = config.enable_body_smoothing
@@ -117,14 +106,33 @@ class SimulationGarment:
         self.integrator = wp.sim.XPBDIntegrator() #intialize semi-implicit time-integrator
         self.state_0 = self.model.state() #returns state object for model (holds all *time-varying* data for a model)
         self.state_1 = self.model.state() #i.e. body/particle positions and velocities
-        if self.caching:
-            self.renderer = wp.sim.render.SimRenderer(self.model, str(paths.usd), scaling=1.0)
 
         if self.sim_use_graph:
             self.create_graph()
 
         self.last_verts = None
         self.current_verts = wp.array.numpy(self.state_0.particle_q)
+
+    def parse_segmentation_rows(self):
+        seg_dict = {}
+        for idx, row in enumerate(self.garment_data.box_mesh.stitch_segmentation):
+            # row could be a string line (from file) or a list (from memory)
+
+            # Normalize row into a list of entries
+            if isinstance(row, str):
+                entries = row.rstrip('\n').split(',')
+            else:
+                entries = row
+
+            first_entry = str(entries[0])
+
+            if first_entry.startswith('stitch'):
+                entry = "stitch"
+            else:
+                entry = first_entry
+
+            seg_dict.setdefault(entry, []).append(idx)
+        return seg_dict
 
     def build_stage(self, config: SimConfig) -> None:
         """Build the simulation stage including cloth, body, and constraints.
@@ -162,8 +170,8 @@ class SimulationGarment:
             body_seg = self.garment_data.body_segmentation.copy()
         else:
             # Read from disk (backward compatible)
-            body_vertices, body_indices, body_faces = self.load_obj(self.paths.in_body_obj)
-            body_seg = self.read_json(self.paths.body_seg) 
+            raise NotImplementedError("Disk-based body loading is not implemented in this version.")
+             
 
         body_vertices = body_vertices * self.b_scale
         self.shift_y = self.get_shift_param(body_vertices)
@@ -185,34 +193,15 @@ class SimulationGarment:
             cloth_faces = np.array(box_mesh.faces)
             cloth_indices = cloth_faces.flatten()
             
-            # Save segmentation to file temporarily so we can use read_segmentation
-            # This ensures we get the exact same format as the original implementation
-            if hasattr(box_mesh, 'stitch_segmentation') and box_mesh.stitch_segmentation:
-                # Save segmentation to the expected file path
-                box_mesh.save_segmentation()
-            
-            # Use read_segmentation to get the exact same format as disk-based path
-            # This ensures consistency with the original implementation
-            cloth_seg_dict = assign.read_segmentation(self.paths.g_mesh_segmentation)
+            cloth_seg_dict = self.parse_segmentation_rows()
             self.cloth_seg_dict = cloth_seg_dict
             stitching_vertices = cloth_seg_dict["stitch"] if 'stitch' in cloth_seg_dict.keys() else []
             
             # Use original edge lengths from BoxMesh
             orig_lens_dict = box_mesh.orig_lens if hasattr(box_mesh, 'orig_lens') and box_mesh.orig_lens else None
         else:
-            # Read from disk (backward compatible)
-            cloth_vertices, cloth_indices, cloth_faces = self.load_obj(self.paths.g_box_mesh)
-            cloth_seg_dict = assign.read_segmentation(self.paths.g_mesh_segmentation)
-            self.cloth_seg_dict = cloth_seg_dict
-            stitching_vertices = cloth_seg_dict["stitch"] if 'stitch' in cloth_seg_dict.keys() else []
+            raise NotImplementedError("Disk-based cloth loading is not implemented in this version.")
             
-            # Load ground truth stitching lengths
-            if not self.paths.g_orig_edge_len.exists():
-                orig_lens_dict = None
-                logger.warning("No original length dict found.")
-            else:
-                with open(self.paths.g_orig_edge_len, 'rb') as file:
-                    orig_lens_dict = pickle.load(file)
 
         cloth_vertices = cloth_vertices * self.c_scale
         if self.shift_y:
@@ -279,7 +268,7 @@ class SimulationGarment:
                         panel_init_labels=self._load_panel_labels(),
                         strategy='closest', 
                         merge_two_legs=True,
-                        smpl_body=self.paths.use_smpl_seg
+                        smpl_body=True #TODO we should not have this flag anymore to include other body types
                         )  
         
         face_filters, particle_filter = [], []
@@ -287,7 +276,7 @@ class SimulationGarment:
             v_connectivity = self._build_vert_connectivity(cloth_vertices, cloth_indices)
             # Arm filter for the skirts
             face_filters.append(assign.create_face_filter(
-                body_vertices, body_indices, body_seg, ['left_arm', 'right_arm', 'arms'], smpl_body=self.paths.use_smpl_seg))
+                body_vertices, body_indices, body_seg, ['left_arm', 'right_arm', 'arms'], smpl_body=True))#TODO we should not have this flag anymore to include other body types
             particle_filter = assign.assign_face_filter_points(
                 cloth_reference_labels, 
                 ['left_leg', 'right_leg', 'legs'],
@@ -297,7 +286,7 @@ class SimulationGarment:
 
             # Overall filter that ignored internal geometry
             face_filters.append(assign.create_face_filter(
-                body_vertices, body_indices, body_seg, ['face_internal'], smpl_body=self.paths.use_smpl_seg))
+                body_vertices, body_indices, body_seg, ['face_internal'], smpl_body=True))#TODO we should not have this flag anymore to include other body types
             particle_filter = assign.assign_face_filter_points(
                 cloth_reference_labels, 
                 ['body'],
@@ -402,18 +391,10 @@ class SimulationGarment:
                 if hasattr(self.garment_data.box_mesh, 'vertex_labels'):
                     vertex_labels = self.garment_data.box_mesh.vertex_labels
                 else:
-                    # Fall back to reading from file
-                    with open(self.paths.g_vert_labels, 'r') as f:
-                        vertex_labels = yaml.load(f, Loader=yaml.SafeLoader)
+                    #TODO fix this RuntimeError
+                    raise RuntimeError("No vertex labels available for attachment constraints.")
         else:
-            # Read from disk (backward compatible)
-            with open(self.paths.in_body_mes, 'r') as file:
-                body_data = yaml.load(file, Loader=yaml.SafeLoader)
-            with open(self.paths.g_vert_labels, 'r') as f:
-                vertex_labels = yaml.load(f, Loader=yaml.SafeLoader)
-            
-            # Use BodyDefinition class for body parameter access
-            body_def = BodyDefinition(body_data)
+            raise NotImplementedError("Disk-based body loading is not implemented in this version.") 
         
         labels_present = False
         if vertex_labels is None:
@@ -473,7 +454,7 @@ class SimulationGarment:
             logger.warning(f'Requested attachment labels {constraint_labels} are not present. Attachment is turned off.')
 
     def _load_panel_labels(self):
-        pattern = BasicPattern(self.paths.g_specs)
+        pattern = BasicPattern(self.garment_data.pattern_file)
 
         labels = {}
         for name, panel in pattern.pattern['panels'].items():
@@ -552,15 +533,6 @@ class SimulationGarment:
         )
         self.body_mesh.mesh.refit()
 
-        #update render
-        if self.caching: 
-            self.renderer.render_mesh(
-                            f'shape_{self.body_shape_index}',
-                            body_vertices,
-                            None,
-                            is_template=True,
-                        )
-
     def update_body_mesh(self, new_body_vertices):
         """
         Update the body mesh collider with a new set of vertex positions.
@@ -584,15 +556,6 @@ class SimulationGarment:
         if self.sim_use_graph:
             self.create_graph()
 
-        # Update renderer if caching
-        if self.caching:
-            self.renderer.render_mesh(
-                f'shape_{self.body_shape_index}',
-                new_body_vertices,
-                None,
-                is_template=True,
-            )
-
     def render_usd_frame(self, is_live=False):
         with wp.ScopedTimer("render", print=False, active=True):
             start_time = 0.0 if is_live else self.usd_frame_time
@@ -608,12 +571,8 @@ class SimulationGarment:
     def run_frame(self):
         self.update(self.frame)
 
-        # NOTE: USD Render
-        if self.caching:
-            self.render_usd_frame()
-    
     def read_json(self, path):
-        with open(path, 'r') as f:
+        with open(path) as f:
             data = json.load(f)
             return data
     
@@ -659,42 +618,6 @@ class SimulationGarment:
 
         vertex_normals = vertex_normals[:, :3] / (vertex_normals[:, 3][:, np.newaxis])
         return vertex_normals
-
-    def save_frame(self, save_v_norms=False): 
-        """Save current garment state as an obj file, 
-        re-using all the information from boxmesh 
-        except for vertices and vertex normals (e.g. textures and faces)
-        """
-        
-        # NOTE: igl routine is not used here because it cannot write any extra info (e.g. texture coords) into obj
-
-        # stores v, f, vf and vn
-        # Save cloth with texture and normals
-        if save_v_norms:
-            vertex_normals = self.calc_vertex_norms()
-
-        v_cloth_sim = self.current_verts
-        # Store simulated cloth mesh
-        # Read the boxmesh file
-        with open(self.paths.g_box_mesh, 'r') as obj_file:
-            lines = obj_file.readlines()
-
-        # Modify the vertex positions and normals, if required
-        with open(self.paths.g_sim, 'w') as obj_file:
-            v_idx = 0
-            vn_idx = 0
-            for line in lines:
-                if line.startswith('v '):
-                    new_vertex = v_cloth_sim[v_idx]
-                    obj_file.write(f'v {new_vertex[0]} {new_vertex[1]} {new_vertex[2]}\n')
-                    v_idx += 1
-                elif line.startswith('vn '):
-                    if save_v_norms:
-                        new_vertex = vertex_normals[vn_idx]
-                        obj_file.write(f'vn {new_vertex[0]} {new_vertex[1]} {new_vertex[2]}\n')
-                        vn_idx += 1
-                else:
-                    obj_file.write(line)
 
     def is_static(self):
         """

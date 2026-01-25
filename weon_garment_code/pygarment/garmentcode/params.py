@@ -1,5 +1,6 @@
 """Parameter class wrappers around parameter files allowing definition of computed parameters
 """
+import builtins
 import random
 from copy import deepcopy
 from pathlib import Path
@@ -39,8 +40,11 @@ class BodyParametrizationBase:
 
     def load(self, param_file):
         """Load new values from file"""
-        with open(param_file, 'r') as f:
-            dict = yaml.safe_load(f)['body']
+        if isinstance(param_file, builtins.dict):
+            dict = param_file['body']
+        else:
+            with open(param_file) as f:
+                dict = yaml.safe_load(f)['body']
         self.params.update(dict)
         self.eval_dependencies()  # Parameters have been updated
 
@@ -79,7 +83,7 @@ class DesignSampler:
 
     def load(self, param_file):
         """Load new values from file"""
-        with open(param_file, 'r') as f:
+        with open(param_file) as f:
             dict = yaml.safe_load(f)['design']
         self.params.update(dict)
 
@@ -117,7 +121,7 @@ class DesignSampler:
         # Check Defaults
         try: 
             def_prob = nested_get(random_params, path + ['default_prob'])
-        except KeyError as e:   # Default probability not given  -> Sample uniformly
+        except KeyError:   # Default probability not given  -> Sample uniformly
             def_prob = None
 
         def_value = nested_get(self.params, path + ['v'])

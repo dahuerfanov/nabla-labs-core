@@ -4,6 +4,7 @@ from weon_garment_code.garment_programs.garment_enums import SleeveArmholeShape
 from weon_garment_code.pattern_definitions.body_definition import BodyDefinition
 from weon_garment_code.pattern_definitions.sleeve_design import SleeveDesign
 from weon_garment_code.pattern_definitions.torso_design import TorsoDesign
+from weon_garment_code.pattern_definitions.waistband_design import WaistbandDesign
 
 # ============================================================================
 # VALIDATION RULES SYSTEM
@@ -52,17 +53,18 @@ class WidthConsistencyRule(ShirtDesignRule):
         if smallest is None or back is None or chest is None:
             return True, ""  # Skip validation if params not provided
 
-        if smallest > chest:
+        if smallest >= chest:
             return (
                 False,
-                f"smallest_width_above_chest_ratio ({smallest:.3f}) must be ≤ "
+                f"smallest_width_above_chest_ratio ({smallest:.3f}) must be < "
                 f"width_chest_ratio ({chest:.3f})",
             )
 
-        if back > chest:
+        if smallest > back:
             return (
                 False,
-                f"back_width_ratio ({back:.3f}) must be ≤ width_chest_ratio ({chest:.3f})",
+                f"smallest_width_above_chest_ratio ({smallest:.3f}) must be < "
+                f"back_width_ratio ({back:.3f})",
             )
 
         return True, ""
@@ -95,11 +97,11 @@ class LengthProportionRule(ShirtDesignRule):
             return True, ""
 
         # Check: scye_depth < waist_height
-        if scye_depth >= waist_height:
+        if scye_depth >= front_length:
             return (
                 False,
                 f"scye_depth_ratio ({scye_depth:.3f}) must be < "
-                f"waist_over_bust_line_height_ratio ({waist_height:.3f})",
+                f"front_length_ratio ({front_length:.3f})",
             )
 
         # Check: waist_height < front_length
@@ -178,6 +180,8 @@ class PerfectFitShirtDesign:
     Collection of PerfectFitTorsoDesign and PerfectFitSleeveDesign and default collar and assimetry config.
     """
 
+    SAFE_SCYE_RATIO_APPENDAGE: float = 0.01
+
     def __init__(
         self,
         body_definition: BodyDefinition,
@@ -193,13 +197,16 @@ class PerfectFitShirtDesign:
         front_length_ratio: float,
         back_length_ratio: float,
         scye_depth_ratio: float,
+        shirttail_offset_ratio: float,
+        waistband_width_ratio: float,
+        waistband_length_ratio: float,
         sleeveless: bool,
-        armhole_size_ratio: float,
         sleeve_length_ratio: float,
         bicep_width_ratio: float,
         elbow_width_ratio: float,
         wrist_width_ratio: float,
         cuff_length: float,
+        cuff_width_ratio: float,
     ) -> None:
         """Initialize shirt template.
 
@@ -231,10 +238,14 @@ class PerfectFitShirtDesign:
             The back length ratio.
         scye_depth_ratio: float
             The scye depth ratio.
+        shirttail_offset_ratio: float
+            The shirttail offset ratio.
+        waistband_width_ratio: float
+            The waistband width ratio.
+        waistband_length_ratio: float
+            The waistband length ratio.
         sleeveless: bool
             Whether the garment is sleeveless.
-        armhole_size_ratio: float
-            The armhole size ratio.
         sleeve_length_ratio: float
             The sleeve length ratio.
         bicep_width_ratio: float
@@ -245,6 +256,8 @@ class PerfectFitShirtDesign:
             The wrist width ratio.
         cuff_length: float
             The cuff length.
+        cuff_width_ratio: float
+            The cuff width ratio (relative to arm length).
 
         Raises
         ------
@@ -252,25 +265,46 @@ class PerfectFitShirtDesign:
             If any validation rule is violated.
         """
 
+        # Bundle parameters for validation
+        validation_params = {
+            "body_definition": body_definition,
+            "smallest_width_above_chest_ratio": smallest_width_above_chest_ratio,
+            "width_chest_ratio": width_chest_ratio,
+            "width_waist_ratio": width_waist_ratio,
+            "width_hip_ratio": width_hip_ratio,
+            "neck_to_shoulder_distance_ratio": neck_to_shoulder_distance_ratio,
+            "neck_width_ratio": neck_width_ratio,
+            "shoulder_slant_ratio": shoulder_slant_ratio,
+            "waist_over_bust_line_height_ratio": waist_over_bust_line_height_ratio,
+            "back_width_ratio": back_width_ratio,
+            "front_length_ratio": front_length_ratio,
+            "back_length_ratio": back_length_ratio,
+            "scye_depth_ratio": scye_depth_ratio,
+            "shirttail_offset_ratio": shirttail_offset_ratio,
+            "waistband_width_ratio": waistband_width_ratio,
+            "waistband_length_ratio": waistband_length_ratio,
+            "sleeveless": sleeveless,
+            "sleeve_length_ratio": sleeve_length_ratio,
+            "bicep_width_ratio": bicep_width_ratio,
+            "elbow_width_ratio": elbow_width_ratio,
+            "wrist_width_ratio": wrist_width_ratio,
+            "cuff_length": cuff_length,
+            "cuff_width_ratio": cuff_width_ratio,
+        }
+
         # Validate design parameters against all rules
         for rule_class in SHIRT_DESIGN_RULES:
-            is_valid, error_msg = rule_class.validate(
-                smallest_width_above_chest_ratio=smallest_width_above_chest_ratio,
-                width_chest_ratio=width_chest_ratio,
-                width_waist_ratio=width_waist_ratio,
-                width_hip_ratio=width_hip_ratio,
-                back_width_ratio=back_width_ratio,
-                front_length_ratio=front_length_ratio,
-                back_length_ratio=back_length_ratio,
-                waist_over_bust_line_height_ratio=waist_over_bust_line_height_ratio,
-                scye_depth_ratio=scye_depth_ratio,
-                # Sleeve params
-                body_definition=body_definition,
-                sleeveless=sleeveless,
-                bicep_width_ratio=bicep_width_ratio,
-                shoulder_slant_ratio=shoulder_slant_ratio,
-            )
+            is_valid, error_msg = rule_class.validate(**validation_params)
             if not is_valid:
+                # Dynamic retry for sleeve geometry issues
+                if rule_class == SleeveGeometryRule:
+                    is_valid, new_scye_depth_ratio = self._attempt_sleeve_fix(
+                        validation_params
+                    )
+                    if is_valid:
+                        scye_depth_ratio = new_scye_depth_ratio
+                        continue
+
                 raise ValueError(f"Shirt design validation failed: {error_msg}")
 
         self._torso_design = PerfectFitTorsoDesign(
@@ -287,22 +321,72 @@ class PerfectFitShirtDesign:
             front_length_ratio,
             back_length_ratio,
             scye_depth_ratio,
+            shirttail_offset_ratio,
         )
         self._sleeve_design = PerfectFitSleeveDesign(
             body_definition,
             sleeveless,
-            armhole_size_ratio,
+            scye_depth_ratio
+            * body_definition.waist_over_bust_line
+            / body_definition.arm_length,
             sleeve_length_ratio,
             bicep_width_ratio,
             elbow_width_ratio,
             wrist_width_ratio,
             cuff_length,
+            cuff_width_ratio,
         )
+
+        self._waistband_design = PerfectFitWaistbandDesign(
+            body_definition,
+            waistband_width_ratio,
+            waistband_length_ratio,
+        )
+
+    def _attempt_sleeve_fix(self, params: dict) -> tuple[bool, float]:
+        """
+        Attempt to fix sleeve geometry validation failure by adjusting parameters.
+
+        This method calculates a new sufficient scye_depth_ratio and retries
+        validation. It modifies the params dict in-place if successful.
+        """
+
+        body_definition = params["body_definition"]
+        scye_depth_ratio = params["scye_depth_ratio"]
+        bicep_width_ratio = params["bicep_width_ratio"]
+        shoulder_slant_ratio = params["shoulder_slant_ratio"]
+
+        # Calculate required scye depth:
+        # bicep_width < (scye - slant) * waist_to_neck
+        # scye > (bicep_width / waist_to_neck) + slant
+        waist_to_neck = body_definition.waist_over_bust_line
+        arm_length = body_definition.arm_length
+        bicep_width = bicep_width_ratio * arm_length
+
+        min_scye = (
+            (bicep_width / waist_to_neck)
+            + shoulder_slant_ratio
+            + self.SAFE_SCYE_RATIO_APPENDAGE
+        )
+
+        logger.warning(
+            f"Sleeve validation failed. Adjusting scye_depth_ratio from "
+            f"{scye_depth_ratio:.3f} to {min_scye:.3f} to accommodate bicep width."
+        )
+
+        # Update params with new proposed value
+        params["scye_depth_ratio"] = min_scye
+
+        # Retry validation with new value
+        is_valid, _ = SleeveGeometryRule.validate(**params)
+
+        return is_valid, min_scye
 
     def get_design(self) -> dict:
         return {
             "torso": self._torso_design.get_design(),
             "sleeve": self._sleeve_design.get_design(),
+            "waistband": self._waistband_design.get_design(),
         }
 
 
@@ -335,6 +419,7 @@ class PerfectFitTorsoDesign:
         front_length_ratio: float,
         back_length_ratio: float,
         scye_depth_ratio: float,
+        shirttail_offset_ratio: float = 0,
     ) -> None:
         """Initialize shirt template.
 
@@ -366,6 +451,8 @@ class PerfectFitTorsoDesign:
             The back length ratio.
         scye_depth_ratio: float
             The scye depth ratio.
+        shirttail_offset_ratio: float
+            The shirttail offset ratio.
         """
 
         shoulder_width = body_definition.shoulder_w
@@ -388,6 +475,7 @@ class PerfectFitTorsoDesign:
         self._front_length: float = front_length_ratio * waist_to_neck_distance
         self._back_length: float = back_length_ratio * waist_to_neck_distance
         self._scye_depth: float = scye_depth_ratio * waist_to_neck_distance
+        self._shirttail_offset: float = shirttail_offset_ratio * waist_to_neck_distance
 
     def get_design(self) -> TorsoDesign:
         """Get torso design."""
@@ -404,11 +492,34 @@ class PerfectFitTorsoDesign:
             "front_length": {"v": self._front_length},
             "back_length": {"v": self._back_length},
             "scye_depth": {"v": self._scye_depth},
+            "shirttail_offset": {"v": self._shirttail_offset},
         }
-        logger.debug("PerfectFitShirtDesign torso values:")
-        for k, v in torso_dict.items():
-            logger.debug(f"  {k}: {v['v']}")
+
         return TorsoDesign(torso_dict)
+
+
+class PerfectFitWaistbandDesign:
+    """
+    Perfect fit waistband design. The ratios are relative to the body's waist length.
+    """
+
+    def __init__(
+        self,
+        body_definition: BodyDefinition,
+        waistband_width_ratio: float,
+        waistband_length_ratio: float,
+    ) -> None:
+        """Initialize waistband design."""
+        self._width: float = (
+            waistband_width_ratio * body_definition.waist_over_bust_line
+        )
+        self._length: float = waistband_length_ratio * body_definition.shoulder_w
+
+    def get_design(self) -> WaistbandDesign:
+        """Get waistband design."""
+        return WaistbandDesign(
+            {"width": {"v": self._width}, "length": {"v": self._length}}
+        )
 
 
 class PerfectFitSleeveDesign:
@@ -417,7 +528,7 @@ class PerfectFitSleeveDesign:
     """
 
     ARMHOLE_DEFAULT_SHAPE: SleeveArmholeShape = SleeveArmholeShape.ARMHOLE_CURVE
-    DEFAULT_SLEEVE_ANGLE: float = 10.0  # degrees
+    DEFAULT_SLEEVE_ANGLE: float = 0.0  # degrees
     DEFAULT_OPENING_DIR_MIX: float = 0.1
     DEFAULT_STANDING_SHOULDER: bool = False
     DEFAULT_STANDING_SHOULDER_LEN: float = 0.0
@@ -434,6 +545,7 @@ class PerfectFitSleeveDesign:
         elbow_width_ratio: float,
         wrist_width_ratio: float,
         cuff_length: float,
+        cuff_width_ratio: float,
     ):
         """
         Attributes:
@@ -450,8 +562,10 @@ class PerfectFitSleeveDesign:
             Width ratio at the elbow level.
         wrist_width_ratio : float
             Width ratio at the end of the sleeve at the wrist.
-        cuff : CuffDesign
-            Cuff design parameters (reusing from waistband design).
+        cuff_length : float
+            Cuff length ratio.
+        cuff_width_ratio : float
+            Cuff width ratio (relative to arm length).
         """
 
         arm_length = body_definition.arm_length
@@ -465,7 +579,10 @@ class PerfectFitSleeveDesign:
         self._bicep_width: float = bicep_width_ratio * arm_length
         self._elbow_width: float = elbow_width_ratio * arm_length
         self._end_width: float = wrist_width_ratio * arm_length
-        self._cuff_length: float = cuff_length * arm_length
+        self._cuff_length: float = (
+            cuff_length * arm_length
+        )  # Use arm_length for consistent sizing
+        self._cuff_width: float = cuff_width_ratio * arm_length
 
         self._sleeve_angle: float = PerfectFitSleeveDesign.DEFAULT_SLEEVE_ANGLE
         self._opening_dir_mix: float = PerfectFitSleeveDesign.DEFAULT_OPENING_DIR_MIX
@@ -493,18 +610,11 @@ class PerfectFitSleeveDesign:
             "standing_shoulder_len": {"v": self._standing_shoulder_len},
             "connect_ruffle": {"v": self._connect_ruffle},
             "smoothing_coeff": {"v": self._smoothing_coeff},
-            "cuff": {"type": {"v": "CuffBand"}, "cuff_len": {"v": self._cuff_length}},
+            "cuff": {
+                "type": {"v": "CuffBand" if self._cuff_length > 0 else None},
+                "cuff_len": {"v": self._cuff_length},
+                "cuff_width": {"v": self._cuff_width},
+            },
         }
-
-        logger.debug("\n--- SleeveDesign parameter values ---")
-        for k, v in sleeve_dict.items():
-            if k == "cuff":
-                logger.debug(f"Cuff type: {v['type']['v']}")  # type: ignore
-                logger.debug(f"Cuff length: {v['cuff_len']['v']}")  # type: ignore
-            else:
-                logger.debug(
-                    f"{k}: {v['v'] if isinstance(v, dict) and 'v' in v else v}"
-                )
-        logger.debug("--- End SleeveDesign parameter values ---\n")
 
         return SleeveDesign(sleeve_dict)

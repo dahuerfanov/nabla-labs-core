@@ -128,7 +128,8 @@ class PerfectFitPantsDesign:
     _width_knee: float
     _width_calf: float
     _width_ankle: float
-    _cuff_length: float
+    _cuff_height: float
+    _cuff_circumference: float
 
     def __init__(
         self,
@@ -228,7 +229,14 @@ class PerfectFitPantsDesign:
             * CALF_TO_ANKLE_LEG_RATIO
             * crotch_to_ankle_ratio
         )
-        self._cuff_length = cuff_length_ratio * body_definition.computed_leg_length
+        self._cuff_height = cuff_length_ratio * body_definition.computed_leg_length
+
+        # Calculate cuff circumference for a fitted look (approx. ankle size)
+        # Using 50% of leg_circ (thigh) as a heuristic for ankle circumference
+        self._cuff_circumference = body_definition.leg_circ * 0.5
+
+        # Enforce minimum cuff height to prevent thin geometry issues
+        self._cuff_height = max(3.0, self._cuff_height)
 
         self._width_knee: float = general_fit_ratio.value * (
             body_definition.leg_circ / 2 * style_config.knee_ratio
@@ -257,7 +265,8 @@ class PerfectFitPantsDesign:
                 / legs_length
             )
             self._width_ankle = ankle_width
-            self._cuff_length = 0
+            self._cuff_height = 0
+            self._cuff_circumference = 0
         else:
             self._width_calf: float = general_fit_ratio.value * (
                 body_definition.leg_circ / 2 * style_config.calf_ratio
@@ -285,6 +294,10 @@ class PerfectFitPantsDesign:
             "width_hips": {"v": self._width_hips},
             "width_gusset_crotch": {"v": self._width_gusset_crotch},
             "crotch_shift_ratio": {"v": self._crotch_shift_ratio},
-            "cuff": {"type": {"v": "CuffBand"}, "cuff_len": {"v": self._cuff_length}},
+            "cuff": {
+                "type": {"v": "CuffBand"},
+                "cuff_len": {"v": self._cuff_circumference},
+                "cuff_width": {"v": self._cuff_height},
+            },
         }
         return PantsDesign(pants_dict)

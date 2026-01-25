@@ -9,10 +9,11 @@ sim:
       sim_wo_gravity_percentage: 0
       zero_gravity_steps: 20
       resolution_scale: 2.0
-      ground: false
+      ground: true
       
       static_threshold: 0.03
-      max_sim_steps: 2400
+      transition_frame_steps: 100
+      max_sim_steps: 200
       max_frame_time: 60
       max_sim_time: 600
       non_static_percent: 1.5
@@ -22,12 +23,12 @@ sim:
     
     # Garment material and fabric properties
     material:
-      garment_edge_ke: 10000.0   # 1.0: Very soft fabric, 10000.0 very hard fabric
+      garment_edge_ke: 500.0   # 1.0: Very soft fabric, 10000.0 very hard fabric
       garment_edge_kd: 10.0
-      garment_tri_ke: 10000.0
+      garment_tri_ke: 500.0
       garment_tri_kd: 1.0
-      garment_tri_ka: 10000.0
-      spring_ke: 50000.0
+      garment_tri_ka: 500.0
+      spring_ke: 2000.0
       spring_kd: 10.0
       fabric_density: 1.0
       fabric_thickness: 0.1
@@ -36,9 +37,9 @@ sim:
     # Simulation options and feature flags
     options:
       edge_contact_max: 1024
-      enable_particle_particle_collisions: true
-      enable_triangle_particle_collisions: true
-      enable_edge_edge_collisions: true
+      enable_particle_particle_collisions: false
+      enable_triangle_particle_collisions: false 
+      enable_edge_edge_collisions: false
       enable_body_collision_filters: true
       enable_global_collision_filter: true
       
@@ -47,7 +48,7 @@ sim:
       global_max_velocity: 25.0
       
       enable_attachment_constraint: true   
-      attachment_frames: 400000
+      attachment_frames: 400
       attachment_constraints:
         - label: right_collar
           stiffness: 1000.

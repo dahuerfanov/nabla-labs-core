@@ -17,11 +17,13 @@ class FaceInfo2(object):
     """
     https://github.com/CGAL/cgal-swig-bindings/blob/main/examples/python/polygonal_triangulation.py#L9
     """
+
     def __init__(self):
         self.nesting_level = -1
 
     def in_domain(self):
         return (self.nesting_level % 2) != 1
+
 
 def mark_domains(ct, start_face, index, edge_border, face_info):
     """
@@ -43,6 +45,7 @@ def mark_domains(ct, start_face, index, edge_border, face_info):
                         edge_border.append(e)
                     else:
                         queue.append(n)
+
 
 def mark_domain(cdt):
     """Find a mapping that can be tested to see if a face is in a domain
@@ -74,10 +77,12 @@ def mark_domain(cdt):
             mark_domains(cdt, n, lvl, border, face_info)
     return face_info
 
-def plot_triangulation(cdt,face_info):
+
+def plot_triangulation(cdt, face_info):
     """
     https://github.com/CGAL/cgal-swig-bindings/blob/main/examples/python/polygonal_triangulation.py#L77
     """
+
     def rescale_plot(ax, scale=1.1):
         xmin, xmax = ax.get_xlim()
         ymin, ymax = ax.get_ylim()
@@ -97,12 +102,13 @@ def plot_triangulation(cdt,face_info):
 
     for edge in cdt.finite_edges():
         if cdt.is_constrained(edge):
-            plot_edge(edge, 'r-')
+            plot_edge(edge, "r-")
         else:
             if face_info[edge[0]].in_domain():
-                plot_edge(edge, 'b-')
+                plot_edge(edge, "b-")
     rescale_plot(plt.gca())
     plt.show()
+
 
 def get_edge_vert_ids(edges):
     """
@@ -123,6 +129,7 @@ def get_edge_vert_ids(edges):
 
     return zipped_array.astype(int)
 
+
 def create_cdt_points(cdt, points):
     """
     This function converts the edge vertices to Point_2 objects (if necessary) and inserts them into cdt
@@ -134,15 +141,16 @@ def create_cdt_points(cdt, points):
     """
     cdt_points = []
     for p in points:
-        if isinstance(p,CGAL.CGAL_Kernel.Point_2):
+        if isinstance(p, CGAL.CGAL_Kernel.Point_2):
             v = cdt.insert(p)
         else:
-            x,y = p
-            v = cdt.insert(Point_2(float(x),float(y)))
+            x, y = p
+            v = cdt.insert(Point_2(float(x), float(y)))
 
         cdt_points.append(v)
 
     return cdt_points
+
 
 def cdt_insert_constraints(cdt, cdt_points, edge_verts_ids):
     """
@@ -159,7 +167,7 @@ def cdt_insert_constraints(cdt, cdt_points, edge_verts_ids):
           which replace the indices of the newly inserted points later.
     """
     init_len = cdt.number_of_vertices()
-    new_points = {} #[id into cdt.finite_vertices()] -> [replace by this id into cdt.finite_vertices()]
+    new_points = {}  # [id into cdt.finite_vertices()] -> [replace by this id into cdt.finite_vertices()]
 
     for s_id, e_id in edge_verts_ids:
         start = cdt_points[s_id]
@@ -170,11 +178,14 @@ def cdt_insert_constraints(cdt, cdt_points, edge_verts_ids):
         if init_len != num_verts:
             new_points[num_verts - 1] = s_id
             init_len = num_verts
-            logger.info('Generated extra boundary points for sdt constraints. Postprocessing will be performed')
+            logger.info(
+                "Generated extra boundary points for sdt constraints. Postprocessing will be performed"
+            )
 
     return new_points
 
-def get_face_v_ids(cdt, points, new_points, check=False, plot = False):
+
+def get_face_v_ids(cdt, points, new_points, check=False, plot=False):
     """
     This function returns the faces of cdt as a list of ints instead of vertex handles.
     Input:
@@ -202,13 +213,17 @@ def get_face_v_ids(cdt, points, new_points, check=False, plot = False):
         len_points = len(points)
         for i, v_h in enumerate(pts):
             first_temp = v_h.point()
-            first = [first_temp.x(),first_temp.y()]
+            first = [first_temp.x(), first_temp.y()]
 
             if not new_points or i < len_points:
                 second = points[i]
 
-            if (not new_points or i < len_points) and (first[0] != second[0] or first[1] != second[1]):
-                raise ValueError("coords of vertex handle from face vertex does not equal point coords")
+            if (not new_points or i < len_points) and (
+                first[0] != second[0] or first[1] != second[1]
+            ):
+                raise ValueError(
+                    "coords of vertex handle from face vertex does not equal point coords"
+                )
             v_h.set_point(Point_2(i, 0.0))
 
     else:
@@ -225,14 +240,18 @@ def get_face_v_ids(cdt, points, new_points, check=False, plot = False):
             v2_id = int(face.vertex(2).point().x())
 
             if new_points:
-                v_ids = [v0_id,v1_id,v2_id]
+                v_ids = [v0_id, v1_id, v2_id]
                 for j, v_id in enumerate(v_ids):
                     if v_id in new_points_ids:
                         v_ids[j] = new_points[v_id]
 
-                #check if face now is not an edge/point and not already inserted in faces
-                if not (v_ids[0] == v_ids[1] or v_ids[1] == v_ids[2] or v_ids[0] == v_ids[2]) \
-                        and not (sorted_faces and np.any(np.all(np.array(sorted_faces) == sorted(v_ids), axis=1))):
+                # check if face now is not an edge/point and not already inserted in faces
+                if not (
+                    v_ids[0] == v_ids[1] or v_ids[1] == v_ids[2] or v_ids[0] == v_ids[2]
+                ) and not (
+                    sorted_faces
+                    and np.any(np.all(np.array(sorted_faces) == sorted(v_ids), axis=1))
+                ):
                     face_v_ids.append(v_ids)
                     sorted_faces.append(sorted(v_ids))
             else:
@@ -243,6 +262,7 @@ def get_face_v_ids(cdt, points, new_points, check=False, plot = False):
 
     f = np.array(face_v_ids)
     return f
+
 
 def get_faces_sorted(cdt):
     """
@@ -259,11 +279,9 @@ def get_faces_sorted(cdt):
     pts = list(cdt.finite_vertices())
     points = []
 
-
     for i, v_h in enumerate(pts):
-        points.append([v_h.point().x(),v_h.point().y()])
+        points.append([v_h.point().x(), v_h.point().y()])
         v_h.set_point(Point_2(i, 0.0))
-
 
     # Keep faces that are in the domain
     face_info_new = mark_domain(cdt)
@@ -281,6 +299,7 @@ def get_faces_sorted(cdt):
     f = np.array(face_v_ids)
     return f, points
 
+
 def get_keep_vertices(cdt, len_b):
     """
     This function filters out the newly inserted boundary vertices from cdt after executing the CGAL mesh generation.
@@ -297,18 +316,64 @@ def get_keep_vertices(cdt, len_b):
     all_bdry_v_ids = np.unique(unique_occurring_edges.flatten())
     new_bdry_v_ids = all_bdry_v_ids[all_bdry_v_ids >= len_b]
 
-    #remove new_boundary_vertices
+    # remove new_boundary_vertices
     keep_vertices = np.delete(points, new_bdry_v_ids, axis=0)
 
     return list(keep_vertices)
 
-def is_manifold(face_v_ids: np.ndarray, points: np.ndarray, tol=1e-2):
-    """Check if the 2D mesh is manifold -- all face triangles are correct triangles"""
 
+def is_manifold(face_v_ids: np.ndarray, points: np.ndarray, tol: float = 1e-2) -> bool:
+    """Check if the 2D mesh is manifold -- all face triangles are correct triangles.
+
+    A triangle is degenerate if it violates the triangle inequality:
+    sum(sides) > 2 * max(side) + tol
+
+    Parameters
+    ----------
+    face_v_ids : np.ndarray
+        Face vertex indices (N x 3)
+    points : np.ndarray
+        Vertex coordinates (M x 2)
+    tol : float
+        Tolerance for the triangle inequality check (default: 0.01 cm)
+
+    Returns
+    -------
+    bool
+        True if all triangles are valid, False if any are degenerate
+    """
     faces = points[face_v_ids]
     face_side_1 = np.linalg.norm(faces[:, 0] - faces[:, 1], axis=1)
     face_side_2 = np.linalg.norm(faces[:, 1] - faces[:, 2], axis=1)
     face_side_3 = np.linalg.norm(faces[:, 0] - faces[:, 2], axis=1)
     side_lengths = np.stack([face_side_1, face_side_2, face_side_3], axis=-1)
 
-    return np.all(side_lengths.sum(axis=1) > 2 * side_lengths.max(axis=1) + tol)
+    triangle_inequality = side_lengths.sum(axis=1) > 2 * side_lengths.max(axis=1) + tol
+    all_valid = np.all(triangle_inequality)
+
+    if not all_valid:
+        degenerate_mask = ~triangle_inequality
+        degenerate_indices = np.where(degenerate_mask)[0]
+        n_degenerate = len(degenerate_indices)
+
+        logger.warning(
+            f"Found {n_degenerate} degenerate triangle(s) out of {len(face_v_ids)} total"
+        )
+
+        # Log details for first few degenerate triangles
+        for idx in degenerate_indices[:5]:
+            sides = side_lengths[idx]
+            min_side = sides.min()
+            max_side = sides.max()
+            area_approx = 0.5 * np.abs(
+                np.cross(faces[idx, 1] - faces[idx, 0], faces[idx, 2] - faces[idx, 0])
+            )
+            logger.warning(
+                f"  Triangle {idx}: sides={sides.round(4).tolist()}, "
+                f"min={min_side:.4f}, max={max_side:.4f}, area≈{area_approx:.6f}"
+            )
+
+        if n_degenerate > 5:
+            logger.warning(f"  ... and {n_degenerate - 5} more degenerate triangles")
+
+    return all_valid

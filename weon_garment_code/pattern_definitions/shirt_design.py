@@ -6,6 +6,7 @@ for shirt garments, replacing the previous dictionary-based approach.
 
 from weon_garment_code.pattern_definitions.sleeve_design import SleeveDesign
 from weon_garment_code.pattern_definitions.torso_design import TorsoDesign
+from weon_garment_code.pattern_definitions.waistband_design import WaistbandDesign
 
 
 class CollarComponentDesign:
@@ -274,7 +275,8 @@ class ShirtDesign:
         Sleeve design parameters.
     left_design : LeftDesign
         Asymmetric design parameters for the left side.
-
+    waistband_design : WaistbandDesign
+        Waistband design parameters.
     """
 
     def __init__(self, design_dict: dict) -> None:
@@ -298,6 +300,9 @@ class ShirtDesign:
         left_dict = design_dict.get("left", {})
         self._left_design: LeftDesign = LeftDesign(left_dict)
 
+        waistband_dict = design_dict.get("waistband", {})
+        self._waistband_design: WaistbandDesign = WaistbandDesign(waistband_dict)
+
     @property
     def collar_design(self) -> CollarDesign:
         """Collar design parameters."""
@@ -317,3 +322,8 @@ class ShirtDesign:
     def torso_design(self) -> TorsoDesign:
         """Main torso design parameters."""
         return self._torso_design
+
+    @property
+    def waistband_design(self) -> WaistbandDesign:
+        """Waistband design parameters."""
+        return self._waistband_design

@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -127,7 +126,7 @@ class PathCofig:
                  in_element_path: str | Path, 
                  out_path: str | Path, 
                  in_name: str, 
-                 out_name: Optional[str] = None, 
+                 out_name: str | None = None, 
                  body_name: str = '', 
                  samples_name: str = '', 
                  default_body: bool = True,
@@ -213,7 +212,7 @@ class PathCofig:
         else:
             self.in_body_mes = self.input / 'body_measurements.yaml'
         
-        with open(self.in_body_mes, 'r') as file:
+        with open(self.in_body_mes) as file:
             body_dict = yaml.load(file, Loader=yaml.SafeLoader)
         if 'body_sample' in body_dict['body']:   # Not present in default measurements
             self._body_name = body_dict['body']['body_sample']

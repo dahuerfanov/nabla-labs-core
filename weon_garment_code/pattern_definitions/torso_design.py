@@ -39,6 +39,8 @@ class TorsoDesign:
         Scye (armhole) depth.
     strapless : bool
         Whether the garment is strapless.
+    shirttail_offset : float
+        Shirttail offset.
     """
 
     def __init__(self, design_dict: dict) -> None:
@@ -79,6 +81,9 @@ class TorsoDesign:
         self._back_length: float = shirt_dict.get("back_length", {}).get("v", 69.0)
         self._scye_depth: float = shirt_dict.get("scye_depth", {}).get("v", 21.7)
         self._strapless: bool = shirt_dict.get("strapless", {}).get("v", False)
+        self._shirttail_offset: float = shirt_dict.get("shirttail_offset", {}).get(
+            "v", 0.0
+        )
 
     @property
     def smallest_width(self) -> float:
@@ -144,3 +149,8 @@ class TorsoDesign:
     def strapless(self) -> bool:
         """Whether the garment is strapless."""
         return self._strapless
+
+    @property
+    def shirttail_offset(self) -> float:
+        """Shirttail offset."""
+        return self._shirttail_offset

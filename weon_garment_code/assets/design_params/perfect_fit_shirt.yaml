@@ -16,7 +16,6 @@ scye_depth_ratio: 0.5
 sleeveless: false
 # ratios relative to arm length:
 sleeve_length_ratio: 1.0
-armhole_size_ratio: 0.25
 bicep_width_ratio: 0.4
 elbow_width_ratio: 0.3
 wrist_width_ratio: 0.2

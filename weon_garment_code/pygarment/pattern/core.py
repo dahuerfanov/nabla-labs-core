@@ -5,9 +5,10 @@
 import copy
 import errno
 import json
-import numpy as np
 import os
 import random
+
+import numpy as np
 import svgpathtools as svgpath
 from loguru import logger
 
@@ -48,7 +49,7 @@ class EmptyPatternError(BaseException):
         super().__init__(*args)
 
 # ------------ Patterns --------
-class BasicPattern(object):
+class BasicPattern:
     """Loading & serializing of a pattern specification in custom JSON format.
         Input:
             * Pattern template in custom JSON format
@@ -66,11 +67,20 @@ class BasicPattern(object):
     def __init__(self, pattern_file=None):
         
         self.spec_file = pattern_file
-        
-        if pattern_file is not None: # load pattern from file
+
+        if isinstance(pattern_file, str): # load pattern from file
             self.path = os.path.dirname(pattern_file)
             self.name = BasicPattern.name_from_path(pattern_file)
-            self.reloadJSON()
+            self.reloadJSON() 
+        elif isinstance(pattern_file, BasicPattern):  # load pattern from given dict
+            self.path = None
+            self.name = self.__class__.__name__
+            self.spec = copy.deepcopy(pattern_file).__dict__
+            self.pattern = self.spec['pattern']
+            self.properties = self.spec['properties']  # mandatory part
+
+            # template normalization - panel translations and curvature to relative coords
+            self._normalize_template()
         else: # create empty pattern
             self.path = None
             self.name = self.__class__.__name__
@@ -85,7 +95,7 @@ class BasicPattern(object):
             logger.warning(f'Pattern {self.name} is not connected to any file. Reloading from file request ignored')
             return
 
-        with open(self.spec_file, 'r') as f_json:
+        with open(self.spec_file) as f_json:
             self.spec = json.load(f_json)
         self.pattern = self.spec['pattern']
         self.properties = self.spec['properties']  # mandatory part

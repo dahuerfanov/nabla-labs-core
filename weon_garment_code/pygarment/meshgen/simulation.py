@@ -1,9 +1,8 @@
-import os
 import time
 import traceback
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import igl
+import numpy as np
 import trimesh
 import warp as wp
 from loguru import logger
@@ -16,24 +15,28 @@ from weon_garment_code.pygarment.meshgen.garment import SimulationGarment
 from weon_garment_code.pygarment.meshgen.garment_data import GarmentData
 from weon_garment_code.pygarment.meshgen.render.pythonrender import render_images
 
+if TYPE_CHECKING:
+    from weon_garment_code.pattern_data_sim import GC_TryOnPerson
+
 wp.init()
 
 
 class SimulationError(BaseException):
     """Exception raised when panel stitching cannot be executed correctly."""
+
     pass
 
 
 def optimize_garment_storage(paths: PathCofig) -> None:
     """Prepare the data element for compact storage.
-    
+
     Converts OBJ meshes to PLY format and removes texture files to reduce storage size.
-    
+
     Parameters
     ----------
     paths : PathCofig
         Path configuration object containing paths to garment mesh files.
-        
+
     Note
     ----
     This function silently handles any errors during conversion, continuing with
@@ -44,7 +47,9 @@ def optimize_garment_storage(paths: PathCofig) -> None:
         boxmesh = trimesh.load(paths.g_box_mesh)
         boxmesh.export(paths.g_box_mesh_compressed)
         paths.g_box_mesh.unlink()
-        logger.info(f'Converted {paths.g_box_mesh} to {paths.g_box_mesh_compressed} and removed original OBJ.')
+        logger.info(
+            f"Converted {paths.g_box_mesh} to {paths.g_box_mesh_compressed} and removed original OBJ."
+        )
     except BaseException as e:
         logger.warning(f"Failed to convert {paths.g_box_mesh} to PLY: {e}")
 
@@ -52,7 +57,9 @@ def optimize_garment_storage(paths: PathCofig) -> None:
         simmesh = trimesh.load(paths.g_sim)
         simmesh.export(paths.g_sim_compressed)
         paths.g_sim.unlink()
-        logger.info(f'Converted {paths.g_sim} to {paths.g_sim_compressed} and removed original OBJ.')
+        logger.info(
+            f"Converted {paths.g_sim} to {paths.g_sim_compressed} and removed original OBJ."
+        )
     except BaseException as e:
         logger.warning(f"Failed to convert {paths.g_sim} to PLY: {e}")
 
@@ -71,16 +78,13 @@ def optimize_garment_storage(paths: PathCofig) -> None:
 
 
 def sim_frame_sequence(
-    garment: SimulationGarment,
-    config: SimConfig,
-    store_usd: bool = False,
-    verbose: bool = False
+    garment: SimulationGarment, config: SimConfig, verbose: bool = False
 ) -> None:
     """Run the simulation frame sequence.
 
     Executes the simulation for the specified number of frames, checking for
     static equilibrium after the minimum number of steps and zero gravity steps.
-    
+
     Parameters
     ----------
     garment : SimulationGarment
@@ -93,55 +97,56 @@ def sim_frame_sequence(
     verbose : bool, optional
         Whether to print verbose output including frame-by-frame information
         and self-intersection counts. Default is False.
-        
+
     Note
     ----
     The simulation will stop early if static equilibrium is achieved after
     both `zero_gravity_steps` and `min_sim_steps` have been completed.
     """
-    # Save initial state
-    if store_usd:
-        garment.render_usd_frame()
-
     # Use tqdm for progress bar if not verbose
     frame_iter = (
         range(0, config.max_sim_steps)
-        if verbose else tqdm(range(0, config.max_sim_steps), desc="Simulation frames", unit="frame")
+        if verbose
+        else tqdm(
+            range(0, config.max_sim_steps), desc="Simulation frames", unit="frame"
+        )
     )
+    # non_static_len_list = []
     for frame in frame_iter:
         if verbose:
-            logger.info(f'------ Frame {frame + 1} ------')
+            logger.info(f"------ Frame {frame + 1} ------")
 
         garment.frame = frame
         garment.run_frame()
 
         if verbose:
             num_cloth_cloth_contacts = garment.count_self_intersections()
-            logger.debug(f'Self-Intersection: {num_cloth_cloth_contacts}')
+            logger.debug(f"Self-Intersection: {num_cloth_cloth_contacts}")
 
-        if frame >= config.control.zero_gravity_steps and frame >= config.control.min_sim_steps:
-            static, _ = garment.is_static()
+        if (
+            frame >= config.control.zero_gravity_steps
+            and frame >= config.control.min_sim_steps
+        ):
+            static, non_static_len = garment.is_static()
+            # non_static_len_list.append(non_static_len)
             if static:
-                logger.info(f"Simulation stopped early at frame {frame+1} due to static equilibrium.")
+                logger.info(
+                    f"Simulation stopped early at frame {frame + 1} due to static equilibrium."
+                )
                 break
 
 
 def run_sim(
     cloth_name: str,
     props: dict[str, Any],
-    paths: PathCofig,
-    save_v_norms: bool = False,
-    store_usd: bool = False,
-    optimize_storage: bool = False,
-    verbose: bool = False,
+    try_on_person: "GC_TryOnPerson",
     garment_data: GarmentData | None = None,
-    experiment_tracker=None
-) -> None:
+) -> tuple[trimesh.Trimesh, dict[str, np.ndarray]]:
     """Initialize and run the simulation.
 
     This function sets up the simulation environment, runs the frame sequence,
     performs quality checks, saves the results, and optionally renders images.
-    
+
     Parameters
     ----------
     cloth_name : str
@@ -169,14 +174,14 @@ def run_sim(
         use this data directly instead of reading from disk. This improves
         performance by avoiding redundant I/O operations. Default is None
         (read from disk).
-        
+
     Raises
     ------
     SimulationError
         If the simulation fails due to a known error condition.
     BaseException
         If the simulation crashes due to an unexpected error.
-        
+
     Note
     ----
     After simulation, quality checks are performed and logged as warnings
@@ -188,43 +193,40 @@ def run_sim(
     # Use DatasetProperties class instead of dictionary access
     dataset_props = DatasetProperties.from_props(props)
     config = dataset_props.sim.get_sim_config()
-    garment = SimulationGarment(cloth_name, config, paths, caching=store_usd, garment_data=garment_data)
+    garment = SimulationGarment(cloth_name, config, garment_data=garment_data)
 
     try:
         logger.info("Simulation started...")
-        sim_frame_sequence(garment, config, store_usd, verbose=verbose)
+        sim_frame_sequence(garment, config, verbose=False)
     except SimulationError as e:
         logger.error(f"Simulation failed for {cloth_name} with error: {e}")
         logger.error(traceback.format_exc())
         raise
     except BaseException as e:
-        logger.error(f'Simulation crashed for {cloth_name} with error: {e}')
+        logger.error(f"Simulation crashed for {cloth_name} with error: {e}")
         logger.error(traceback.format_exc())
         raise
 
     # --- Retarget to target posed mesh with smooth interpolation ---
     logger.info("--- Starting Retargeting Sequence ---")
 
-    path_to_intermediate_objs = paths.bodies_path / "intermediates"        
-    intermediate_obj_list = sorted(os.listdir(path_to_intermediate_objs))
+    intermediate_obj_list = try_on_person.intermediate_meshes
 
     config.control.zero_gravity_steps = 0  # Gravity should already be on
 
-    transition_frames = 100  # Number of frames to interpolate between each pose
+    transition_frames = (
+        config.control.transition_frame_steps
+    )  # Number of frames to interpolate between each pose
 
     # Get the starting pose from the garment object
     previous_verts = garment.v_body.copy()
 
-    for intermediate_obj in intermediate_obj_list:
-        logger.info(f"--- Retargeting to pose {intermediate_obj} over {transition_frames} frames ---")
+    for idx, intermediate_obj in enumerate(intermediate_obj_list):
+        if idx == 0:
+            continue
 
         # Load the next target pose
-        target_body_obj_path = os.path.join(path_to_intermediate_objs, intermediate_obj)
-        if not os.path.exists(target_body_obj_path):
-            logger.error(f"Target body file not found: {target_body_obj_path}")
-            continue # Skip to the next id if a file is missing
-
-        target_verts, _ = igl.read_triangle_mesh(str(target_body_obj_path))
+        target_verts = intermediate_obj.vertices.copy().astype(np.float64)
 
         # Apply the same transformations as the initial body
         target_verts = target_verts * garment.b_scale
@@ -244,7 +246,7 @@ def run_sim(
 
             # Run just ONE frame of simulation
             # We use garment.run_frame() directly for single-step control
-            garment.frame += 1 # Manually increment frame counter
+            garment.frame += 1  # Manually increment frame counter
             garment.run_frame()
 
         # The transition is done, the new 'previous' is the pose we just reached
@@ -252,17 +254,20 @@ def run_sim(
 
     logger.info("--- Retargeting Sequence Finished ---")
 
-
     # Quality checks (log warnings and continue)
     frame = garment.frame
     logger.info(f"Simulation completed with {frame + 1} frames")
 
     if garment.frame == config.max_sim_steps - 1:
         _, non_st_count = garment.is_static()
-        logger.warning(f'Failed to achieve static equilibrium for {cloth_name}. {non_st_count} non-static vertices out of {len(garment.current_verts)}')
+        logger.warning(
+            f"Failed to achieve static equilibrium for {cloth_name}. {non_st_count} non-static vertices out of {len(garment.current_verts)}"
+        )
 
     if time.time() - start_time < 0.5:  # 0.5 sec -- finished suspiciously fast
-        logger.warning(f'Simulation finished suspiciously fast for {cloth_name}. Time taken: < 0.5s')
+        logger.warning(
+            f"Simulation finished suspiciously fast for {cloth_name}. Time taken: < 0.5s"
+        )
 
     # 3D penetrations
     num_body_collisions = garment.count_body_intersections()
@@ -270,43 +275,36 @@ def run_sim(
     num_self_collisions = garment.count_self_intersections()
 
     if num_body_collisions > config.max_body_collisions:
-        logger.warning(f'Excessive body-cloth intersections for {cloth_name}. {num_body_collisions} > {config.max_body_collisions}')
-    
-    if num_self_collisions:
-        logger.info(f'Self-intersecting with {num_self_collisions}.')
-        if num_self_collisions > config.max_self_collisions:
-            logger.warning(f'Excessive self-intersections for {cloth_name}. {num_self_collisions} > {config.max_self_collisions}')
-    else:
-        logger.info('Mesh is intersection-free.')
+        logger.warning(
+            f"Excessive body-cloth intersections for {cloth_name}. {num_body_collisions} > {config.max_body_collisions}"
+        )
 
-    garment.save_frame(save_v_norms=save_v_norms)
+    if num_self_collisions:
+        logger.info(f"Self-intersecting with {num_self_collisions}.")
+        if num_self_collisions > config.max_self_collisions:
+            logger.warning(
+                f"Excessive self-intersections for {cloth_name}. {num_self_collisions} > {config.max_self_collisions}"
+            )
+    else:
+        logger.info("Mesh is intersection-free.")
+
+    draped_garment_mesh = trimesh.Trimesh(
+        vertices=garment.current_verts / 100, faces=garment.f_cloth, process=False
+    )
 
     # Render images
-    render_images(
-        paths,
+    images_dict = render_images(
+        draped_garment_mesh,
         garment.v_body,
         garment.f_body,
         dataset_props.render.config,
-        experiment_tracker=experiment_tracker
     )
-
-    if optimize_storage:
-        optimize_garment_storage(paths)
 
     # Final info output
     sec = round(time.time() - start_time, 3)
     min_ = int(sec / 60)
-    logger.info(f"Simulation pipeline completed. Time taken: {min_} m {sec - min_ * 60} s.")
-    
-    # Log metrics to experiment tracker if provided
-    if experiment_tracker is not None:
-        try:
-            metrics = {
-                'sim_time_seconds': sec,
-                'sim_frames': frame + 1,
-                'body_collisions': num_body_collisions,
-                'self_collisions': num_self_collisions,
-            }
-            experiment_tracker.log_metrics(metrics)
-        except Exception as e:
-            logger.warning(f"Failed to log metrics to experiment tracker: {e}")
+    logger.info(
+        f"Simulation pipeline completed. Time taken: {min_} m {sec - min_ * 60} s."
+    )
+
+    return draped_garment_mesh, images_dict

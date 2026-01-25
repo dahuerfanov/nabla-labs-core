@@ -1,7 +1,8 @@
 """Data structures for passing in-memory garment data to simulation."""
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
+
 import numpy as np
 
 from weon_garment_code.pattern_definitions.body_definition import BodyDefinition
@@ -42,7 +43,8 @@ class GarmentData:
     body_indices: np.ndarray
     body_faces: np.ndarray
     body_segmentation: dict[str, Any]
-    vertex_labels: Optional[dict[str, list[int]]] = None
+    pattern_file: dict
+    vertex_labels: dict[str, list[int]] | None = None
     
     def __post_init__(self):
         """Validate that BoxMesh is loaded."""

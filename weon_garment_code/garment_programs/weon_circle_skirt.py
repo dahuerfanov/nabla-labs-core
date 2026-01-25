@@ -1,16 +1,24 @@
-from typing import Optional, Union, List, Callable
+from collections.abc import Callable
 
 import numpy as np
 
 import weon_garment_code.pygarment.garmentcode as pyg
 from weon_garment_code.config import AttachmentConstraint
-from weon_garment_code.pygarment.meshgen.box_mesh_gen.box_mesh import BoxMesh
 from weon_garment_code.garment_programs.base_classes import StackableSkirtComponent
-from weon_garment_code.garment_programs.garment_enums import InterfaceName, EdgeLabel
+from weon_garment_code.garment_programs.garment_enums import EdgeLabel, InterfaceName
 from weon_garment_code.garment_programs.garment_program_utils import AttachmentHandler
 from weon_garment_code.pattern_definitions.body_definition import BodyDefinition
 from weon_garment_code.pattern_definitions.skirt_design import SkirtDesign
-from weon_garment_code.pygarment.meshgen.box_mesh_gen.stitch_types import EdgeLabel as BoxEdgeLabel
+from weon_garment_code.pygarment.meshgen.arap.core_types import (
+    GarmentCategory,
+    GarmentMetadata,
+    GarmentRingType,
+    PanelPosition,
+)
+from weon_garment_code.pygarment.meshgen.box_mesh_gen.box_mesh import BoxMesh
+from weon_garment_code.pygarment.meshgen.box_mesh_gen.stitch_types import (
+    EdgeLabel as BoxEdgeLabel,
+)
 
 
 class CircleArcPanel(pyg.Panel):
@@ -18,7 +26,7 @@ class CircleArcPanel(pyg.Panel):
 
     # Calculation constants
     QUARTER_CIRCLE_RAD: float = np.pi / 2
-    
+
     # Class attributes
     waist_width: float
 
@@ -28,8 +36,8 @@ class CircleArcPanel(pyg.Panel):
         top_rad: float,
         length: float,
         angle: float,
-        match_top_int_proportion: Optional[float] = None,
-        match_bottom_int_proportion: Optional[float] = None
+        match_top_int_proportion: float | None = None,
+        match_bottom_int_proportion: float | None = None,
     ) -> None:
         """
         A single panel for a circle skirt, defined by a top radius, length, and angle.
@@ -44,9 +52,9 @@ class CircleArcPanel(pyg.Panel):
             Length of the skirt panel from top to bottom.
         angle : float
             The angle of the arc in radians.
-        match_top_int_proportion : float, optional
+        match_top_int_proportion : float | None, optional
             The target length for the top interface to calculate the ruffle factor, by default None.
-        match_bottom_int_proportion : float, optional
+        match_bottom_int_proportion : float | None, optional
             The target length for the bottom interface to calculate the ruffle factor, by default None.
         """
         super().__init__(name)
@@ -60,55 +68,70 @@ class CircleArcPanel(pyg.Panel):
         vert_len = length * np.cos(halfarc)
 
         # top
-        self.edges.append(pyg.CircleEdgeFactory.from_points_radius(
-            [-dist_w/2, 0], [dist_w/2, 0], 
-            radius=top_rad, large_arc=halfarc > self.QUARTER_CIRCLE_RAD))
+        self.edges.append(
+            pyg.CircleEdgeFactory.from_points_radius(
+                [-dist_w / 2, 0],
+                [dist_w / 2, 0],
+                radius=top_rad,
+                large_arc=halfarc > self.QUARTER_CIRCLE_RAD,
+            )
+        )
 
-        self.edges.append(pyg.Edge(
-            self.edges[-1].end, [dist_out / 2, -vert_len]))
-        
+        self.edges.append(pyg.Edge(self.edges[-1].end, [dist_out / 2, -vert_len]))
+
         # Bottom
-        self.edges.append(pyg.CircleEdgeFactory.from_points_radius(
-            self.edges[-1].end, [- dist_out / 2, -vert_len], 
-            radius=top_rad + length,
-            large_arc=halfarc > self.QUARTER_CIRCLE_RAD, right=False))
+        self.edges.append(
+            pyg.CircleEdgeFactory.from_points_radius(
+                self.edges[-1].end,
+                [-dist_out / 2, -vert_len],
+                radius=top_rad + length,
+                large_arc=halfarc > self.QUARTER_CIRCLE_RAD,
+                right=False,
+            )
+        )
 
         self.edges.close_loop()
 
         # Interfaces
         self.interfaces = {
-            InterfaceName.TOP: pyg.Interface(self, self.edges[0],
-                                 ruffle=self.edges[0].length() / match_top_int_proportion if match_top_int_proportion is not None else 1.
-                                 ).reverse(True),
-            InterfaceName.BOTTOM: pyg.Interface(self, self.edges[2],
-                                    ruffle=self.edges[2].length() / match_bottom_int_proportion if match_bottom_int_proportion is not None else 1.
-                                    ),
+            InterfaceName.TOP: pyg.Interface(
+                self,
+                self.edges[0],
+                ruffle=self.edges[0].length() / match_top_int_proportion
+                if match_top_int_proportion is not None
+                else 1.0,
+            ).reverse(True),
+            InterfaceName.BOTTOM: pyg.Interface(
+                self,
+                self.edges[2],
+                ruffle=self.edges[2].length() / match_bottom_int_proportion
+                if match_bottom_int_proportion is not None
+                else 1.0,
+            ),
             InterfaceName.LEFT: pyg.Interface(self, self.edges[1]),
-            InterfaceName.RIGHT: pyg.Interface(self, self.edges[3])
+            InterfaceName.RIGHT: pyg.Interface(self, self.edges[3]),
         }
 
     def length(self, *args) -> float:
         """Return the length of the panel (right edge).
-        
+
         Returns
         -------
         float
             Length of the panel's right edge.
         """
         return self.interfaces[InterfaceName.RIGHT].edges.length()
-    
+
     @staticmethod
     def from_w_length_suns(
-        name: str,
-        length: float,
-        top_width: float,
-        bottom_width: float,
-        **kwargs
-    ) -> 'CircleArcPanel':
+        name: str, length: float, top_width: float, bottom_width: float, **kwargs
+    ) -> "CircleArcPanel":
         radius = length / (1 - top_width / bottom_width)
         angle = bottom_width / radius
 
-        return CircleArcPanel(name=name, top_rad=radius - length, length=length, angle=angle, **kwargs)
+        return CircleArcPanel(
+            name=name, top_rad=radius - length, length=length, angle=angle, **kwargs
+        )
 
 
 class AsymHalfCirclePanel(pyg.Panel):
@@ -120,10 +143,10 @@ class AsymHalfCirclePanel(pyg.Panel):
         top_rad: float,
         length_f: float,
         length_s: float,
-        match_top_int_proportion: Optional[float] = None,
-        match_bottom_int_proportion: Optional[float] = None
+        match_top_int_proportion: float | None = None,
+        match_bottom_int_proportion: float | None = None,
     ) -> None:
-        """ 
+        """
         A panel for an asymmetric circle skirt, creating a half-circle arc.
 
         Parameters
@@ -136,29 +159,31 @@ class AsymHalfCirclePanel(pyg.Panel):
             Length at the front (center) of the panel.
         length_s : float
             Length at the side of the panel.
-        match_top_int_proportion : float, optional
+        match_top_int_proportion : float | None, optional
             The target length for the top interface to calculate the ruffle factor, by default None.
-        match_bottom_int_proportion : float, optional
+        match_bottom_int_proportion : float | None, optional
             The target length for the bottom interface to calculate the ruffle factor, by default None.
         """
         super().__init__(name)
 
-        dist_w = 2 * top_rad 
+        dist_w = 2 * top_rad
         dist_out = 2 * (top_rad + length_s)
 
         # top
-        self.edges.append(pyg.CircleEdgeFactory.from_points_radius(
-            [-dist_w/2, 0], [dist_w/2, 0], 
-            radius=top_rad, large_arc=False))
+        self.edges.append(
+            pyg.CircleEdgeFactory.from_points_radius(
+                [-dist_w / 2, 0], [dist_w / 2, 0], radius=top_rad, large_arc=False
+            )
+        )
 
-        self.edges.append(pyg.Edge(
-            self.edges[-1].end, [dist_out / 2, 0]))
-        
+        self.edges.append(pyg.Edge(self.edges[-1].end, [dist_out / 2, 0]))
+
         # Bottom
         self.edges.append(
             pyg.CircleEdgeFactory.from_three_points(
-                self.edges[-1].end, [- dist_out / 2, 0], 
-                point_on_arc=[0, -(top_rad + length_f)]
+                self.edges[-1].end,
+                [-dist_out / 2, 0],
+                point_on_arc=[0, -(top_rad + length_f)],
             )
         )
 
@@ -166,25 +191,34 @@ class AsymHalfCirclePanel(pyg.Panel):
 
         # Interfaces
         self.interfaces = {
-            InterfaceName.TOP: pyg.Interface(self, self.edges[0],
-                                 ruffle=self.edges[0].length() / match_top_int_proportion if match_top_int_proportion is not None else 1.
-                                 ).reverse(True),
-            InterfaceName.BOTTOM: pyg.Interface(self, self.edges[2],
-                                    ruffle=self.edges[2].length() / match_bottom_int_proportion if match_bottom_int_proportion is not None else 1.
-                                    ),
+            InterfaceName.TOP: pyg.Interface(
+                self,
+                self.edges[0],
+                ruffle=self.edges[0].length() / match_top_int_proportion
+                if match_top_int_proportion is not None
+                else 1.0,
+            ).reverse(True),
+            InterfaceName.BOTTOM: pyg.Interface(
+                self,
+                self.edges[2],
+                ruffle=self.edges[2].length() / match_bottom_int_proportion
+                if match_bottom_int_proportion is not None
+                else 1.0,
+            ),
             InterfaceName.LEFT: pyg.Interface(self, self.edges[1]),
-            InterfaceName.RIGHT: pyg.Interface(self, self.edges[3])
+            InterfaceName.RIGHT: pyg.Interface(self, self.edges[3]),
         }
-    
+
     def length(self, *args) -> float:
         """Return the length of the panel (right edge).
-        
+
         Returns
         -------
         float
             Length of the panel's right edge.
         """
         return self.interfaces[InterfaceName.RIGHT].edges.length()
+
 
 class SkirtCircle(StackableSkirtComponent):
     """Simple circle skirt"""
@@ -194,7 +228,7 @@ class SkirtCircle(StackableSkirtComponent):
     FRONT_TRANSLATION_Z: int = 15
     BACK_TRANSLATION_Z: int = -15
     FULL_CIRCLE_RAD: float = 2 * np.pi
-    
+
     # Class attributes
     skirt_design: SkirtDesign
     slit: bool
@@ -208,12 +242,12 @@ class SkirtCircle(StackableSkirtComponent):
         skirt_design: SkirtDesign,
         waist_front: float,
         waist_back: float,
-        tag: str = '',
-        length: Optional[float] = None,
+        tag: str = "",
+        length: float | None = None,
         slit: bool = True,
         asymm: bool = False,
-        min_len: Optional[int] = None,
-        **kwargs
+        min_len: int | None = None,
+        **kwargs,
     ) -> None:
         """Initialize a simple circle skirt component. Can be symmetric or asymmetric.
 
@@ -227,7 +261,7 @@ class SkirtCircle(StackableSkirtComponent):
             Back waist measurement (waist_back_width).
         tag : str, optional
             A tag for the component name (e.g., 'r' or 'l'). Default is ''.
-        length : float, optional
+        length : float | None, optional
             Overrides the length from the design dictionary. Default is None.
         slit : bool, optional
             Whether to add a cut/slit to the skirt. Default is True.
@@ -245,75 +279,101 @@ class SkirtCircle(StackableSkirtComponent):
         self.slit = slit
         self.waist_front = waist_front
         self.waist_back = waist_back
-        
+
         bottom_width = self.skirt_design.bottom_width
-        skirt_length = max(self.skirt_design.length, self.MIN_LENGTH) if length is None else length
+        skirt_length = (
+            max(self.skirt_design.length, self.MIN_LENGTH) if length is None else length
+        )
         waist = self.skirt_design.waist_width
 
         # panels (created without body positioning - will be applied in apply_body_alignment)
         if not asymm:  # Typical symmetric skirt
             self.front = CircleArcPanel.from_w_length_suns(
-                f'skirt_front_{tag}' if tag else 'skirt_front', 
-                skirt_length, waist, bottom_width,
+                f"skirt_front_{tag}" if tag else "skirt_front",
+                skirt_length,
+                waist,
+                bottom_width,
                 match_top_int_proportion=waist_front,
             ).translate_by([0, 0, self.FRONT_TRANSLATION_Z])
 
             self.back = CircleArcPanel.from_w_length_suns(
-                f'skirt_back_{tag}'  if tag else 'skirt_back', 
-                skirt_length, waist, bottom_width,
+                f"skirt_back_{tag}" if tag else "skirt_back",
+                skirt_length,
+                waist,
+                bottom_width,
                 match_top_int_proportion=waist_back,
             ).translate_by([0, 0, self.BACK_TRANSLATION_Z])
         else:
             # NOTE: Asymmetic front/back is only defined on full skirt (1 sun)
             w_rad = waist / self.FULL_CIRCLE_RAD
             f_length = self.skirt_design.asymm.front_length * skirt_length
-            tot_len = w_rad * 2 + skirt_length + f_length 
+            tot_len = w_rad * 2 + skirt_length + f_length
             del_r = tot_len / 2 - f_length - w_rad
-            s_length = np.sqrt((tot_len / 2)**2 - del_r**2) - w_rad
+            s_length = np.sqrt((tot_len / 2) ** 2 - del_r**2) - w_rad
 
             self.front = AsymHalfCirclePanel(
-                f'skirt_front_{tag}' if tag else 'skirt_front', 
-                w_rad, f_length, s_length,
+                f"skirt_front_{tag}" if tag else "skirt_front",
+                w_rad,
+                f_length,
+                s_length,
                 match_top_int_proportion=waist_front,
             ).translate_by([0, 0, self.FRONT_TRANSLATION_Z])
 
             self.back = AsymHalfCirclePanel(
-                f'skirt_back_{tag}'  if tag else 'skirt_back', 
-                w_rad, skirt_length, s_length,
+                f"skirt_back_{tag}" if tag else "skirt_back",
+                w_rad,
+                skirt_length,
+                s_length,
                 match_top_int_proportion=waist_back,
             ).translate_by([0, 0, self.BACK_TRANSLATION_Z])
 
         # Add a cut
         if self.skirt_design.cut.add and slit:
             self.add_cut(
-                self.front if self.skirt_design.cut.place > 0 else self.back, 
-                self.skirt_design, skirt_length)
+                self.front if self.skirt_design.cut.place > 0 else self.back,
+                self.skirt_design,
+                skirt_length,
+            )
 
         # Stitches
         self.stitching_rules = pyg.Stitches(
-            (self.front.interfaces[InterfaceName.RIGHT], self.back.interfaces[InterfaceName.RIGHT]),
-            (self.front.interfaces[InterfaceName.LEFT], self.back.interfaces[InterfaceName.LEFT])
+            (
+                self.front.interfaces[InterfaceName.RIGHT],
+                self.back.interfaces[InterfaceName.RIGHT],
+            ),
+            (
+                self.front.interfaces[InterfaceName.LEFT],
+                self.back.interfaces[InterfaceName.LEFT],
+            ),
         )
 
         # Interfaces
         self.interfaces = {
-            InterfaceName.TOP: pyg.Interface.from_multiple(self.front.interfaces[InterfaceName.TOP], self.back.interfaces[InterfaceName.TOP]),
+            InterfaceName.TOP: pyg.Interface.from_multiple(
+                self.front.interfaces[InterfaceName.TOP],
+                self.back.interfaces[InterfaceName.TOP],
+            ),
             InterfaceName.BOTTOM_F: self.front.interfaces[InterfaceName.BOTTOM],
             InterfaceName.BOTTOM_B: self.back.interfaces[InterfaceName.BOTTOM],
-            InterfaceName.BOTTOM: pyg.Interface.from_multiple(self.front.interfaces[InterfaceName.BOTTOM], self.back.interfaces[InterfaceName.BOTTOM])
+            InterfaceName.BOTTOM: pyg.Interface.from_multiple(
+                self.front.interfaces[InterfaceName.BOTTOM],
+                self.back.interfaces[InterfaceName.BOTTOM],
+            ),
         }
-        
+
         # Add lower_interface label for attachment constraints
-        self.interfaces[InterfaceName.TOP].edges.propagate_label(EdgeLabel.LOWER_INTERFACE)
-        
+        self.interfaces[InterfaceName.TOP].edges.propagate_label(
+            EdgeLabel.LOWER_INTERFACE.value
+        )
+
     def add_cut(
         self,
-        panel: Union[CircleArcPanel, 'AsymHalfCirclePanel'],
+        panel: CircleArcPanel | AsymHalfCirclePanel,
         skirt_design: SkirtDesign,
-        skirt_length: float
+        skirt_length: float,
     ) -> None:
         """Add a cut to the skirt.
-        
+
         Parameters
         ----------
         panel : CircleArcPanel | AsymHalfCirclePanel
@@ -323,7 +383,10 @@ class SkirtCircle(StackableSkirtComponent):
         skirt_length : float
             Length of the skirt (used for calculating cut dimensions).
         """
-        width, depth = skirt_design.cut.width * skirt_length, skirt_design.cut.depth * skirt_length
+        width, depth = (
+            skirt_design.cut.width * skirt_length,
+            skirt_design.cut.depth * skirt_length,
+        )
 
         target_edge = panel.interfaces[InterfaceName.BOTTOM].edges[0]
         t_len = target_edge.length()
@@ -340,19 +403,17 @@ class SkirtCircle(StackableSkirtComponent):
         cut_shape = pyg.EdgeSeqFactory.dart_shape(width, depth=depth)
 
         new_edges, _, interf_edges = pyg.ops.cut_into_edge(
-            cut_shape, target_edge, 
-            offset=offset, 
-            right=right
+            cut_shape, target_edge, offset=offset, right=right
         )
 
         panel.edges.substitute(target_edge, new_edges)
         panel.interfaces[InterfaceName.BOTTOM].substitute(
-            target_edge, interf_edges,
-            [panel for _ in range(len(interf_edges))])
-        
+            target_edge, interf_edges, [panel for _ in range(len(interf_edges))]
+        )
+
     def length(self, *args) -> float:
         """Return the length of the skirt.
-        
+
         Returns
         -------
         float
@@ -362,7 +423,7 @@ class SkirtCircle(StackableSkirtComponent):
 
     def get_waist_width(self) -> float:
         """Return the waist width of the skirt.
-        
+
         Returns
         -------
         float
@@ -371,12 +432,12 @@ class SkirtCircle(StackableSkirtComponent):
         return self.front.waist_width
 
     @staticmethod
-    def get_attachment_constraints() -> List[AttachmentConstraint]:
+    def get_attachment_constraints() -> list[AttachmentConstraint]:
         """Get the list of attachment constraints for this skirt garment.
-        
+
         Returns the attachment constraints required for simulating this skirt garment.
         Skirts require a lower_interface constraint at the waist level.
-        
+
         Returns:
         --------
         List[AttachmentConstraint]
@@ -388,37 +449,38 @@ class SkirtCircle(StackableSkirtComponent):
             stiffness=0.0,
             damping=10.0,
             position_calculation={
-                'x': {'positive': [], 'negative': []},
-                'y': {
-                    'positive': ['computed_waist_level'],
-                    'negative': []
-                },
-                'z': {'positive': [], 'negative': []}
+                "x": {"positive": [], "negative": []},
+                "y": {"positive": ["computed_waist_level"], "negative": []},
+                "z": {"positive": [], "negative": []},
             },
-            direction=None  # Will use default [0, 1, 0] (upward)
+            direction=None,  # Will use default [0, 1, 0] (upward)
         )
-        
+
         return [lower_interface_constraint]
-    
+
     def get_vertex_processor_callback(self) -> Callable[[BoxMesh], None]:
         """Get the vertex processor callback for skirt attachment constraints.
-        
+
         Skirts use default behavior: for LOWER_INTERFACE, uses vertices already
         labeled from edges.
-        
+
         Returns:
         --------
         Callable[[BoxMesh], None] | None
             A callback that handles constraints with default behavior.
         """
-        return lambda box_mesh: AttachmentHandler.process_attachment_constraints_generic(SkirtCircle, box_mesh)
+        return (
+            lambda box_mesh: AttachmentHandler.process_attachment_constraints_generic(
+                SkirtCircle, box_mesh
+            )
+        )
 
     def apply_body_alignment(self, body: BodyDefinition) -> None:
         """Apply body alignment to position the skirt correctly.
-        
+
         Translates the skirt garment vertically based on the body's waist
         level to ensure proper fit and alignment.
-        
+
         Parameters
         ----------
         body : BodyDefinition
@@ -427,26 +489,98 @@ class SkirtCircle(StackableSkirtComponent):
             - computed_waist_level: Vertical position of the waist level (computed property)
         """
         waist_level = body.computed_waist_level
-        
+
         # Position front and back panels at waist level
         self.front.translate_by([0, waist_level, 0])
         self.back.translate_by([0, waist_level, 0])
 
+        # Propagate ring labels after positioning
+        self._propagate_ring_labels()
+
+    def _propagate_ring_labels(self) -> None:
+        """Propagate ring labels for deterministic ARAP detection.
+
+        Labels propagated:
+        - WAIST: Top edges (waist/waistband interface)
+        - SKIRT_HEM: Bottom edges (hem of the skirt)
+        """
+        # WAIST label on top edges
+        self.interfaces[InterfaceName.TOP].edges.propagate_label(EdgeLabel.WAIST.value)
+
+        # SKIRT_HEM labels on bottom edges
+        self.front.interfaces[InterfaceName.BOTTOM].edges.propagate_label(
+            EdgeLabel.SKIRT_HEM.value
+        )
+        self.back.interfaces[InterfaceName.BOTTOM].edges.propagate_label(
+            EdgeLabel.SKIRT_HEM.value
+        )
+
+    def get_garment_metadata(self) -> GarmentMetadata:
+        """Get deterministic garment metadata for ARAP processing.
+
+        Returns
+        -------
+        GarmentMetadata
+            Metadata containing category, panel positions, ring connectors,
+            and seam paths computed at garment creation time.
+        """
+        # Panel positions for skirt (front/back panels)
+        panel_positions: dict[str, PanelPosition] = {
+            "skirt_front": PanelPosition.FRONT,
+            "skirt_back": PanelPosition.BACK,
+        }
+
+        return GarmentMetadata(
+            category=GarmentCategory.SKIRT,
+            panel_positions=panel_positions,
+            ring_connectors={},  # Populated during BoxMesh generation
+            seam_paths=[],  # Populated during BoxMesh generation
+        )
+
+    def get_ring_label(self, ring_type: GarmentRingType) -> str:
+        """Get the edge label string for a ring type.
+
+        Maps GarmentRingType to the corresponding EdgeLabel value used
+        for vertex labeling in BoxMesh.
+
+        Parameters
+        ----------
+        ring_type : GarmentRingType
+            The type of ring to get the label for.
+
+        Returns
+        -------
+        str
+            The edge label string.
+
+        Raises
+        ------
+        ValueError
+            If ring_type is not supported for skirts.
+        """
+        if ring_type == GarmentRingType.WAIST:
+            return EdgeLabel.WAIST.value
+        elif ring_type == GarmentRingType.SKIRT_HEM:
+            return EdgeLabel.SKIRT_HEM.value
+        else:
+            raise ValueError(f"Unsupported ring type for skirt: {ring_type}")
+
+
 class AsymmSkirtCircle(SkirtCircle):
     """Front/back asymmetric skirt."""
-    
+
     def __init__(
         self,
         skirt_design: SkirtDesign,
         waist_front: float,
         waist_back: float,
-        tag: str = '',
-        length: Optional[float] = None,
+        tag: str = "",
+        length: float | None = None,
         slit: bool = True,
-        **kwargs
+        **kwargs,
     ) -> None:
         """Initialize a front/back asymmetric skirt.
-        
+
         Parameters
         ----------
         skirt_design : SkirtDesign
@@ -464,4 +598,6 @@ class AsymmSkirtCircle(SkirtCircle):
         **kwargs
             Additional keyword arguments.
         """
-        super().__init__(skirt_design, waist_front, waist_back, tag, length, slit, asymm=True)
+        super().__init__(
+            skirt_design, waist_front, waist_back, tag, length, slit, asymm=True
+        )

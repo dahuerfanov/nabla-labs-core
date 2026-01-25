@@ -76,7 +76,7 @@ class SleeveDesign:
             "v", 0.1
         )
         self._end_width: float = sleeve_dict.get("end_width", {}).get("v", 9.0)
-        self._sleeve_angle: float = sleeve_dict.get("sleeve_angle", {}).get("v", 10)
+        self._sleeve_angle: float = sleeve_dict.get("sleeve_angle", {}).get("v", 0)
         self._opening_dir_mix: float = sleeve_dict.get("opening_dir_mix", {}).get(
             "v", 0.1
         )

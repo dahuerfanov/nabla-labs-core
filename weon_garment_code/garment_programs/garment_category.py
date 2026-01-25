@@ -1,49 +1,10 @@
 """Garment category enumeration for the perfect-fit pipeline.
 
-This module provides a centralized enum for garment categories, enabling
-maintainable factory patterns and extensibility for future garment types.
+This module re-exports GarmentCategory from the unified core_types module
+for backward compatibility. New code should import directly from core_types.
 """
 
-from enum import Enum
+# Re-export from core_types for backward compatibility
+from weon_garment_code.pygarment.meshgen.arap.core_types import GarmentCategory
 
-
-class GarmentCategory(str, Enum):
-    """Supported garment categories for the perfect-fit pipeline.
-
-    Each category maps to a specific factory creation method in GarmentFactory.
-    Extend this enum when adding new garment types to the pipeline.
-    """
-
-    PANTS = "pants"
-    SHIRT = "shirt"
-    # Future categories (uncomment when implemented):
-    # SKIRT = "skirt"
-    # DRESS = "dress"
-    # FITTED_SHIRT = "fittedshirt"
-
-    @classmethod
-    def from_string(cls, value: str) -> "GarmentCategory":
-        """Convert a string to GarmentCategory, case-insensitive.
-
-        Parameters
-        ----------
-        value : str
-            The garment type string (e.g., "Pants", "SHIRT", "fittedshirt").
-
-        Returns
-        -------
-        GarmentCategory
-            The matching category enum.
-
-        Raises
-        ------
-        ValueError
-            If the value doesn't match any category.
-        """
-        normalized = value.lower().strip()
-        for category in cls:
-            if category.value == normalized:
-                return category
-        raise ValueError(
-            f"Unknown garment category: '{value}'. Supported: {[c.value for c in cls]}"
-        )
+__all__ = ["GarmentCategory"]

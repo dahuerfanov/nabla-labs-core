@@ -1,8 +1,4 @@
-from typing import Any
-
 import weon_garment_code.pygarment.garmentcode as pyg
-from weon_garment_code.assets.garment_programs import skirt_paneled
-from weon_garment_code.assets.garment_programs.circle_skirt import CircleArcPanel
 from weon_garment_code.config import AttachmentConstraint
 from weon_garment_code.garment_programs.base_classes import BaseBand
 from weon_garment_code.garment_programs.garment_enums import InterfaceName
@@ -117,11 +113,11 @@ class StraightWB(BaseBand):
         self.stitching_rules = pyg.Stitches(
             (
                 self.front.interfaces[InterfaceName.RIGHT],
-                self.back.interfaces[InterfaceName.RIGHT],
+                self.back.interfaces[InterfaceName.RIGHT].clone().flip_edges(),
             ),
             (
                 self.front.interfaces[InterfaceName.LEFT],
-                self.back.interfaces[InterfaceName.LEFT],
+                self.back.interfaces[InterfaceName.LEFT].clone().flip_edges(),
             ),
         )
 
@@ -205,268 +201,115 @@ class StraightWB(BaseBand):
         self.back.translate_by([0, waist_level, 0])
 
 
-class FittedWB(StraightWB):
-    """Also known as Yoke: a waistband that follows the body curvature and sits tight.
-
-    Made out of two circular arc panels.
-    """
-
-    # Class attributes
-    hips: float
-    hips_back: float
-    hips_front: float
-    waist_back_frac: float
-    waist_front_frac: float
-    hips_back_frac: float
-    hips_front_frac: float
-    bottom_width: float
-    bottom_back_fraction: float
-
-    def __init__(
-        self,
-        waistband_design: WaistbandDesign,
-        waist: float,
-        waist_back: float,
-        waist_front: float,
-        hips: float,
-        hips_back: float,
-        rise: float = 1.0,
-    ) -> None:
-        """Initialize a waistband that follows the body curvature and sits tight.
-
-        Parameters:
-        -----------
-        waistband_design : WaistbandDesign
-            Waistband design parameters object.
-        waist : float
-            Total waist measurement (full circumference).
-        waist_back : float
-            Back waist width measurement.
-        waist_front : float
-            Front waist width measurement (waist - waist_back).
-        hips : float
-            Total hip measurement (full circumference).
-        hips_back : float
-            Back hip width measurement.
-        rise : float, optional
-            The rise value of the bottoms that the WB is attached to.
-            Adapts the shape of the waistband to sit tight on top of the given
-            rise level. If 1.0 or anything less than waistband width, the rise is
-            ignored and the FittedWB is created to sit well on the waist.
-            Default is 1.0.
-        """
-        # Store additional measurements for fitted waistband
-        self.hips = hips
-        self.hips_back = hips_back
-        self.hips_front = hips - hips_back
-
-        # Calculate fractions
-        self.waist_back_frac = waist_back / waist if waist > 0 else 0.5
-        self.waist_front_frac = waist_front / waist if waist > 0 else 0.5
-        self.hips_back_frac = hips_back / hips if hips > 0 else 0.5
-        self.hips_front_frac = self.hips_front / hips if hips > 0 else 0.5
-
-        super().__init__(waistband_design, waist, waist_back, waist_front, rise)
-
-    def define_panels(self) -> None:
-        """Define the front and back circular arc panels for the fitted waistband."""
-        # Calculate bottom width and fractions based on rise
-        self.bottom_width = pyg.utils.lin_interpolation(
-            self.hips, self.waist, self.rise
-        )
-        self.bottom_back_fraction = pyg.utils.lin_interpolation(
-            self.hips_back_frac, self.waist_back_frac, self.rise
-        )
-
-        # Top width is the waist
-        top_width = self.waist
-
-        self.front = CircleArcPanel.from_all_length(
-            "wb_front",
-            self.width,
-            top_width * self.waist_front_frac,
-            self.bottom_width * (1 - self.bottom_back_fraction),
-            match_top_int_proportion=self.waist_front,
-            match_bottom_int_proportion=self.waist_front,
-        )
-
-        self.back = CircleArcPanel.from_all_length(
-            "wb_back",
-            self.width,
-            top_width * self.waist_back_frac,
-            self.bottom_width * self.bottom_back_fraction,
-            match_top_int_proportion=self.waist_back,
-            match_bottom_int_proportion=self.waist_back,
-        )
-
-
 class CuffBand(BaseBand):
     """Cuff class for sleeves or pants - band-like piece of fabric with optional skirt."""
+
+    # Panel placement constants (same as StraightWB)
+    FRONT_TRANSLATION_Z: int = 20
+    BACK_TRANSLATION_Z: int = -15
 
     design: CuffDesign
     front: StraightBandPanel
     back: StraightBandPanel
+    vertical: bool
 
     def __init__(
         self,
         tag: str,
         design: CuffDesign,
+        vertical: bool = False,
     ) -> None:
         super().__init__(body=None, design=design, tag=tag)
 
         self.design = design
+        self.vertical = vertical
 
-        width = self.design.cuff_width
-        length = self.design.cuff_length
-        self.front = StraightBandPanel(f"{tag}_cuff_f", width / 2, length)
-        self.back = StraightBandPanel(f"{tag}_cuff_b", width / 2, length)
+        # Convention: width = cuff height, length = total circumference
+        # Each panel gets half the circumference, full height
+        cuff_height = self.design.cuff_width
+        half_circumference = self.design.cuff_length / 2
 
-        self.stitching_rules = pyg.Stitches(
-            (
-                self.front.interfaces[InterfaceName.RIGHT],
-                self.back.interfaces[InterfaceName.RIGHT],
-            ),
-            (
-                self.front.interfaces[InterfaceName.LEFT],
-                self.back.interfaces[InterfaceName.LEFT],
-            ),
-        )
+        if self.vertical:
+            # Vertical orientation (for sleeves axial alignment)
+            # Width = height (axial), Depth = circumference (transverse)
+            # Panel is TALL (half_circumference) × NARROW (cuff_height)
+            self.front = StraightBandPanel(
+                f"{tag}_cuff_f", cuff_height, half_circumference
+            )
+            self.back = StraightBandPanel(
+                f"{tag}_cuff_b", cuff_height, half_circumference
+            )
 
-        self.interfaces = {
-            InterfaceName.BOTTOM: pyg.Interface.from_multiple(
-                self.front.interfaces[InterfaceName.BOTTOM],
-                self.back.interfaces[InterfaceName.BOTTOM],
-            ),
-            InterfaceName.TOP_FRONT: self.front.interfaces[InterfaceName.TOP],
-            InterfaceName.TOP_BACK: self.back.interfaces[InterfaceName.TOP],
-            InterfaceName.TOP: pyg.Interface.from_multiple(
-                self.front.interfaces[InterfaceName.TOP],
-                self.back.interfaces[InterfaceName.TOP],
-            ),
-        }
+            # Separate panels in Z like waistband does
+            self.front.translate_by([0, 0, self.FRONT_TRANSLATION_Z])
+            self.back.translate_by([0, 0, self.BACK_TRANSLATION_Z])
 
+            # Stitch front-back via TOP/BOTTOM (short edges = cuff height)
+            # Since panel is vertical, TOP/BOTTOM are the short horizontal edges
+            self.stitching_rules = pyg.Stitches(
+                (
+                    self.front.interfaces[InterfaceName.TOP],
+                    self.back.interfaces[InterfaceName.TOP],
+                ),
+                (
+                    self.front.interfaces[InterfaceName.BOTTOM],
+                    self.back.interfaces[InterfaceName.BOTTOM],
+                ),
+            )
 
-class CuffSkirt(BaseBand):
-    """A skirt-like flared cuff."""
+            # Interfaces mapping for Vertical orientation:
+            # - TOP (connects into body/sleeve): Uses the vertical edge (RIGHT - edge 0)
+            # - BOTTOM (hem): Uses the other vertical edge (LEFT - edge 2)
+            self.interfaces = {
+                InterfaceName.BOTTOM: pyg.Interface.from_multiple(
+                    self.front.interfaces[InterfaceName.LEFT],
+                    self.back.interfaces[InterfaceName.LEFT],
+                ),
+                InterfaceName.TOP_FRONT: self.front.interfaces[InterfaceName.RIGHT],
+                InterfaceName.TOP_BACK: self.back.interfaces[InterfaceName.RIGHT],
+                InterfaceName.TOP: pyg.Interface.from_multiple(
+                    self.front.interfaces[InterfaceName.RIGHT],
+                    self.back.interfaces[InterfaceName.RIGHT],
+                ),
+            }
 
-    # Class attributes
-    design: dict
-    front: Any  # SkirtPanel type
-    back: Any  # SkirtPanel type
+        else:
+            # Horizontal orientation (standard, e.g. for pants)
+            # StraightBandPanel(name, width=horizontal, depth=vertical)
+            # Panel is WIDE (half_circumference) × SHORT (cuff_height)
+            # TOP interface = horizontal edge (half circumference, stitches to sleeve)
+            self.front = StraightBandPanel(
+                f"{tag}_cuff_f", half_circumference, cuff_height
+            )
+            self.back = StraightBandPanel(
+                f"{tag}_cuff_b", half_circumference, cuff_height
+            )
 
-    def __init__(self, tag: str, design: dict, length: float | None = None) -> None:
-        """Initialize a skirt-like flared cuff.
+            # Separate panels in Z like waistband does
+            self.front.translate_by([0, 0, self.FRONT_TRANSLATION_Z])
+            self.back.translate_by([0, 0, self.BACK_TRANSLATION_Z])
 
-        Parameters:
-        -----------
-        tag : str
-            Tag identifier for the cuff skirt.
-        design : dict
-            Design parameters dictionary containing cuff specifications.
-        length : float, optional
-            Length of the cuff skirt. If None, will be taken from design['cuff']['cuff_len']['v'].
-        """
-        super().__init__(body=None, design=design, tag=tag)
+            # Stitch front-back via LEFT/RIGHT (short edges = cuff height)
+            self.stitching_rules = pyg.Stitches(
+                (
+                    self.front.interfaces[InterfaceName.RIGHT],
+                    self.back.interfaces[InterfaceName.RIGHT],
+                ),
+                (
+                    self.front.interfaces[InterfaceName.LEFT],
+                    self.back.interfaces[InterfaceName.LEFT],
+                ),
+            )
 
-        self.design = design["cuff"]
-        width = self.design["b_width"]["v"]
-        flare_diff = (self.design["skirt_flare"]["v"] - 1) * width / 2
-
-        if length is None:
-            length = self.design["cuff_len"]["v"]
-
-        self.front = skirt_paneled.SkirtPanel(
-            f"{tag}_cuff_skirt_f",
-            ruffles=self.design["skirt_ruffle"]["v"],
-            waist_length=width / 2,
-            length=length,
-            flare=flare_diff,
-        )
-        self.front.translate_by([0, 0, 15])
-        self.back = skirt_paneled.SkirtPanel(
-            f"{tag}_cuff_skirt_b",
-            ruffles=self.design["skirt_ruffle"]["v"],
-            waist_length=width / 2,
-            length=length,
-            flare=flare_diff,
-        )
-        self.back.translate_by([0, 0, -15])
-
-        self.stitching_rules = pyg.Stitches(
-            (
-                self.front.interfaces[InterfaceName.RIGHT],
-                self.back.interfaces[InterfaceName.RIGHT],
-            ),
-            (
-                self.front.interfaces[InterfaceName.LEFT],
-                self.back.interfaces[InterfaceName.LEFT],
-            ),
-        )
-
-        self.interfaces = {
-            InterfaceName.TOP: pyg.Interface.from_multiple(
-                self.front.interfaces[InterfaceName.TOP],
-                self.back.interfaces[InterfaceName.TOP],
-            ),
-            InterfaceName.TOP_FRONT: self.front.interfaces[InterfaceName.TOP],
-            InterfaceName.TOP_BACK: self.back.interfaces[InterfaceName.TOP],
-            InterfaceName.BOTTOM: pyg.Interface.from_multiple(
-                self.front.interfaces[InterfaceName.BOTTOM],
-                self.back.interfaces[InterfaceName.BOTTOM],
-            ),
-        }
-
-
-class CuffBandSkirt(pyg.Component):
-    """Cuff class for sleeves or pants - band-like piece of fabric with optional skirt."""
-
-    # Class attributes
-    cuff: CuffBand
-    skirt: CuffSkirt
-
-    def __init__(self, tag: str, design: dict) -> None:
-        """Initialize a combined cuff band and skirt.
-
-        Parameters:
-        -----------
-        tag : str
-            Tag identifier for the cuff.
-        design : dict
-            Design parameters dictionary containing cuff specifications.
-        """
-        super().__init__(self.__class__.__name__)
-
-        self.cuff = CuffBand(tag, CuffDesign(design))
-        self.skirt = CuffSkirt(
-            tag,
-            design,
-            length=design["cuff"]["cuff_len"]["v"]
-            * design["cuff"]["skirt_fraction"]["v"],
-        )
-
-        # Align
-        self.skirt.place_below(self.cuff)
-
-        self.stitching_rules = pyg.Stitches(
-            (
-                self.cuff.interfaces[InterfaceName.BOTTOM],
-                self.skirt.interfaces[InterfaceName.TOP],
-            ),
-        )
-
-        self.interfaces = {
-            InterfaceName.TOP: self.cuff.interfaces[InterfaceName.TOP],
-            InterfaceName.TOP_FRONT: self.cuff.interfaces[InterfaceName.TOP_FRONT],
-            InterfaceName.TOP_BACK: self.cuff.interfaces[InterfaceName.TOP_BACK],
-            InterfaceName.BOTTOM: self.skirt.interfaces[InterfaceName.BOTTOM],
-        }
-
-    def length(self) -> float:
-        """Return the total length of the cuff (band + skirt).
-
-        Returns:
-        --------
-        float
-            Total length of the cuff band and skirt combined.
-        """
-        return self.cuff.length() + self.skirt.length()
+            self.interfaces = {
+                InterfaceName.BOTTOM: pyg.Interface.from_multiple(
+                    self.front.interfaces[InterfaceName.BOTTOM],
+                    self.back.interfaces[InterfaceName.BOTTOM],
+                ),
+                InterfaceName.TOP_FRONT: self.front.interfaces[InterfaceName.TOP],
+                InterfaceName.TOP_BACK: self.back.interfaces[InterfaceName.TOP],
+                InterfaceName.TOP: pyg.Interface.from_multiple(
+                    self.front.interfaces[InterfaceName.TOP],
+                    self.back.interfaces[InterfaceName.TOP],
+                ),
+            }

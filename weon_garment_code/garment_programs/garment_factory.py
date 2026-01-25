@@ -10,12 +10,7 @@ from loguru import logger
 
 import weon_garment_code.pygarment.garmentcode as pyg
 from weon_garment_code.config import AttachmentConstraint
-from weon_garment_code.garment_programs.garment_enums import (
-    EdgeLabel,
-    InterfaceName,
-    PanelLabel,
-)
-from weon_garment_code.garment_programs.weon_bands import FittedWB, StraightWB
+from weon_garment_code.garment_programs.weon_bands import StraightWB
 from weon_garment_code.garment_programs.weon_circle_skirt import (
     AsymmSkirtCircle,
     SkirtCircle,
@@ -210,13 +205,16 @@ class GarmentFactory:
             front_length_ratio=self._design.get("front_length_ratio", 1.3),
             back_length_ratio=self._design.get("back_length_ratio", 1.35),
             scye_depth_ratio=self._design.get("scye_depth_ratio", 0.5),
+            waistband_width_ratio=self._design.get("waistband_width_ratio", 0.1),
+            waistband_length_ratio=self._design.get("waistband_length_ratio", 1.0),
+            shirttail_offset_ratio=self._design.get("shirttail_offset_ratio", 0),
             sleeveless=self._design.get("sleeveless", False),
-            armhole_size_ratio=self._design.get("armhole_size_ratio", 0.25),
             sleeve_length_ratio=self._design.get("sleeve_length_ratio", 1.0),
             bicep_width_ratio=self._design.get("bicep_width_ratio", 0.25),
             elbow_width_ratio=self._design.get("elbow_width_ratio", 0.2),
             wrist_width_ratio=self._design.get("wrist_width_ratio", 0.155),
             cuff_length=self._design.get("cuff_length", 0.0),
+            cuff_width_ratio=self._design.get("cuff_width_ratio", 0.0),
         )
 
         design_data = pf_design.get_design()
@@ -226,6 +224,7 @@ class GarmentFactory:
         shirt_design = ShirtDesign(self._design)
         shirt_design._torso_design = design_data["torso"]
         shirt_design._sleeve_design = design_data["sleeve"]
+        shirt_design._waistband_design = design_data["waistband"]
 
         shirt = Shirt(
             shirt_design=shirt_design,
@@ -427,51 +426,6 @@ class GarmentFactory:
 
         return wb
 
-    def create_fitted_wb(self, rise: float = 1.0) -> FittedWB:
-        """Create a fitted waistband (yoke) instance.
-
-        Parameters:
-        -----------
-        rise : float, optional
-            The rise value of the bottoms that the WB is attached to.
-            Default is 1.0.
-
-        Returns:
-        --------
-        FittedWB
-            A fully initialized FittedWB instance.
-
-        Raises:
-        -------
-        ValueError
-            If the design dictionary does not contain waistband parameters.
-        """
-        if "waistband" not in self._design:
-            raise ValueError(
-                "Design dictionary must contain 'waistband' key for fitted waistband creation"
-            )
-
-        waistband_design = WaistbandDesign(self._design)
-
-        waist = self._body.waist
-        waist_back = self._body.waist_back_width
-        waist_front = waist - waist_back
-        hips = self._body.hips
-        hips_back = self._body.hip_back_width
-
-        wb = FittedWB(
-            waistband_design=waistband_design,
-            waist=waist,
-            waist_back=waist_back,
-            waist_front=waist_front,
-            hips=hips,
-            hips_back=hips_back,
-            rise=rise,
-        )
-        wb.apply_body_alignment(self._body)
-
-        return wb
-
     def create_composite_garment(self) -> pyg.Component:
         """Create a composite garment (dress/jumpsuit) with upper, waistband, and lower components.
 
@@ -500,18 +454,13 @@ class GarmentFactory:
         lower_type = self._design.get("meta", {}).get("bottom", {}).get("v")
         wb_type = self._design.get("meta", {}).get("wb", {}).get("v")
 
-        # Validate that at least one garment type is specified
         if not upper_type and not lower_type:
             raise ValueError(
                 "Composite garment must specify either 'meta.upper.v' or 'meta.bottom.v'"
             )
 
-        # Create composite component
-        composite = pyg.Component("CompositeGarment")
-        composite.subs = []
-        composite.stitching_rules = pyg.Stitches()
-
         # Create upper garment if specified
+        upper: pyg.Component | None = None
         if upper_type:
             if upper_type == "Shirt":
                 upper = self.create_shirt(fitted=False)
@@ -519,9 +468,6 @@ class GarmentFactory:
                 upper = self.create_fitted_shirt()
             else:
                 raise ValueError(f"Unsupported upper garment type: {upper_type}")
-
-            composite.subs.append(upper)
-            upper.set_panel_label(PanelLabel.BODY, overwrite=False)
 
         # Create lower garment if specified
         lower: pyg.Component | None = None
@@ -536,14 +482,15 @@ class GarmentFactory:
                 raise ValueError(f"Unsupported lower garment type: {lower_type}")
 
         # Create waistband if specified and lower garment exists
+        wb: pyg.Component | None = None
         if wb_type and lower:
             # Get waist width from lower garment
             if hasattr(lower, "get_waist_width"):
                 # For skirts (SkirtCircle, AsymmSkirtCircle)
-                waist_width = lower.get_waist_width()
+                waist_width = lower.get_waist_width()  # type: ignore[attr-defined]
             elif hasattr(lower, "right") and hasattr(lower.right, "pants_design"):
                 # For pants, access via right.pants_design
-                waist_width = lower.right.pants_design.waist
+                waist_width = lower.right.pants_design.waist  # type: ignore[attr-defined]
             else:
                 # Fallback: use body waist measurement
                 waist_width = self._body.waist
@@ -552,59 +499,13 @@ class GarmentFactory:
                 wb = self.create_straight_wb(
                     waist=waist_width, waist_back=self._body.waist_back_width, rise=1.0
                 )
-            elif wb_type == "FittedWB":
-                wb = self.create_fitted_wb(rise=1.0)
             else:
                 raise ValueError(f"Unsupported waistband type: {wb_type}")
 
-            composite.subs.append(wb)
-
-            # Place waistband below upper garment (if upper exists)
-            if composite.subs and len(composite.subs) > 1:
-                wb.place_by_interface(
-                    wb.interfaces[InterfaceName.TOP],
-                    composite.subs[-2].interfaces[InterfaceName.BOTTOM],
-                    gap=5,
-                )
-                composite.stitching_rules.append(
-                    (
-                        composite.subs[-2].interfaces[InterfaceName.BOTTOM],
-                        wb.interfaces[InterfaceName.TOP],
-                    )
-                )
-
-            # Add waist label
-            wb.interfaces[InterfaceName.TOP].edges.propagate_label(
-                EdgeLabel.LOWER_INTERFACE
-            )
-            wb.set_panel_label(PanelLabel.BODY, overwrite=False)
-
-        # Attach lower garment if present
-        if lower:
-            composite.subs.append(lower)
-
-            # Place lower garment below upper or waistband
-            if len(composite.subs) > 1:
-                lower.place_by_interface(
-                    lower.interfaces[InterfaceName.TOP],
-                    composite.subs[-2].interfaces[InterfaceName.BOTTOM],
-                    gap=5,
-                )
-                composite.stitching_rules.append(
-                    (
-                        composite.subs[-2].interfaces[InterfaceName.BOTTOM],
-                        lower.interfaces[InterfaceName.TOP],
-                    )
-                )
-
-            # Add waist label if no waistband
-            if not wb_type:
-                lower.interfaces[InterfaceName.TOP].edges.propagate_label(
-                    EdgeLabel.LOWER_INTERFACE
-                )
-
-            # Set panel segmentation labels
-            lower.set_panel_label(PanelLabel.LEG, overwrite=False)
+        # Create composite wrapper
+        composite = pyg.CompositeGarment(
+            "CompositeGarment", upper=upper, lower=lower, waistband=wb
+        )
 
         return composite
 
@@ -649,7 +550,6 @@ def create_garment(
         - 'SkirtCircle': Creates a circle skirt
         - 'AsymmSkirtCircle': Creates an asymmetric circle skirt
         - 'StraightWB': Creates a straight waistband
-        - 'FittedWB': Creates a fitted waistband (yoke)
     body : BodyDefinition
         Body measurements object containing all body parameters.
     design : dict
@@ -660,14 +560,13 @@ def create_garment(
         - For Shirt: fitted=True/False
         - For SkirtCircle/AsymmSkirtCircle: tag, length, slit, etc.
         - For StraightWB: waist, waist_back, rise
-        - For FittedWB: rise
 
     Returns:
     --------
     tuple[pyg.Component, list[AttachmentConstraint]]
         A tuple containing:
         - The created garment instance (Pants, Shirt, FittedShirt, SkirtCircle,
-          AsymmSkirtCircle, StraightWB, or FittedWB)
+          AsymmSkirtCircle, StraightWB)
         - A list of AttachmentConstraint objects for the garment.
           For pants, this includes a crotch constraint. For other garment types,
           this is an empty list.
@@ -695,7 +594,6 @@ def create_garment(
             waist_back=kwargs.get("waist_back"),
             rise=kwargs.get("rise", 1.0),
         ),
-        "FittedWB": lambda: factory.create_fitted_wb(rise=kwargs.get("rise", 1.0)),
     }
 
     if garment_type not in garment_creators:
